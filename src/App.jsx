@@ -295,6 +295,7 @@ export default function App() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState({ name: "", phone: "", location: "", notes: "" });
+  const [paymentMethod, setPaymentMethod] = useState("mpesa");
   const [formErrors, setFormErrors] = useState({});
   const [paying, setPaying] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
@@ -332,6 +333,7 @@ export default function App() {
     image: "",
     images: [],
     stockStatus: "in_stock",
+    stockQuantity: "10",
     tags: "",
   });
   const [openProductFaq, setOpenProductFaq] = useState(0);
@@ -600,6 +602,47 @@ export default function App() {
 
   const categoryCount = (categoryKey) => catalog.filter((p) => p.category === categoryKey).length;
 
+  const sendEmailNotification = async (type, data) => {
+    // Email notification framework - integrate with email service (e.g., SendGrid, Resend, AWS SES)
+    console.log(`📧 Email notification: ${type}`, data);
+    
+    // Simulated email templates
+    const templates = {
+      orderConfirmation: {
+        to: data.email,
+        subject: `Order Confirmed - ${data.orderId}`,
+        body: `Hello ${data.customerName},\n\nYour order ${data.orderId} has been confirmed!\n\nTotal: KSh ${data.total.toLocaleString()}\nItems: ${data.itemCount}\n\nPayment: ${data.paymentMethod}\n\nWe'll send you photos for approval before dispatch.\n\nTrack your order: https://nafuumart.co.ke/track/${data.orderId}\n\nThank you!\nNafuu Mart Team`
+      },
+      orderShipped: {
+        to: data.email,
+        subject: `Order Dispatched - ${data.orderId}`,
+        body: `Hello ${data.customerName},\n\nYour order ${data.orderId} has been dispatched!\n\nCourier Reference: ${data.courierRef}\n\nExpected delivery: Next business day\n\nTrack: https://nafuumart.co.ke/track/${data.orderId}`
+      },
+      photoApproval: {
+        to: data.email,
+        subject: `Photos Ready - ${data.orderId}`,
+        body: `Hello ${data.customerName},\n\nWe've sent live photos of your device for approval.\n\nPlease review and confirm: https://nafuumart.co.ke/orders/${data.orderId}/photos\n\nYou have 24 hours to approve or request a different unit.`
+      }
+    };
+
+    const template = templates[type];
+    if (!template) {
+      console.warn(`Unknown email type: ${type}`);
+      return;
+    }
+
+    // TODO: Integrate with actual email service
+    // Example with SendGrid:
+    // const sgMail = require('@sendgrid/mail');
+    // sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    // await sgMail.send({ to: template.to, from: 'orders@nafuumart.co.ke', subject: template.subject, text: template.body });
+
+    // For now, just log
+    console.log(`Would send email to ${template.to}:`, template.subject);
+    
+    return { success: true, type, timestamp: Date.now() };
+  };
+
   const handleImageUpload = async (file, isMainImage = false) => {
     if (!file || !file.type.startsWith("image/")) {
       setAdminMsg("Please select a valid image file.");
@@ -650,6 +693,7 @@ export default function App() {
       image: "",
       images: [],
       stockStatus: "in_stock",
+      stockQuantity: "10",
       tags: "",
     });
     setAdminEditId(null);
@@ -668,6 +712,7 @@ export default function App() {
       image: product.image || "",
       images: Array.isArray(product.images) ? product.images : [],
       stockStatus: product.stockStatus || "in_stock",
+      stockQuantity: String(product.stockQuantity ?? 10),
       tags: Array.isArray(product.tags) ? product.tags.join(", ") : "",
     });
     setAdminMsg("");
@@ -685,6 +730,12 @@ export default function App() {
       return;
     }
 
+    const stockQuantity = Number(adminForm.stockQuantity);
+    if (!Number.isFinite(stockQuantity) || stockQuantity < 0) {
+      setAdminMsg("Stock quantity must be a valid number (0 or more).");
+      return;
+    }
+
     const payload = {
       brand,
       name,
@@ -696,6 +747,7 @@ export default function App() {
       image: adminForm.image.trim() || (adminForm.images.length > 0 ? adminForm.images[0] : ""),
       images: adminForm.images.length > 0 ? adminForm.images : undefined,
       stockStatus: adminForm.stockStatus,
+      stockQuantity,
       tags: adminForm.tags
         .split(",")
         .map((t) => t.trim().toLowerCase())
@@ -747,6 +799,24 @@ export default function App() {
       }));
       return;
     }
+
+    // Check if sufficient stock is available
+    const stockCheck = checkoutItems.map(item => {
+      const product = catalog.find(p => p.id === item.id);
+      const requestedQty = item.quantity || 1;
+      const availableQty = product?.stockQuantity ?? 10;
+      return { id: item.id, name: `${item.brand} ${item.name}`, requestedQty, availableQty, sufficient: availableQty >= requestedQty };
+    });
+
+    const insufficientStock = stockCheck.filter(s => !s.sufficient);
+    if (insufficientStock.length > 0) {
+      const errorMsg = insufficientStock.length === 1
+        ? `Only ${insufficientStock[0].availableQty} unit(s) available for ${insufficientStock[0].name}`
+        : `Insufficient stock for ${insufficientStock.length} item(s)`;
+      setFormErrors((prev) => ({ ...prev, checkout: errorMsg }));
+      return;
+    }
+
     setPaying(true);
     await new Promise((r) => setTimeout(r, 2000));
 
@@ -783,13 +853,42 @@ export default function App() {
       itemCount: checkoutItemCount,
       items: normalizedItems,
       status: "confirmed",
+      paymentStatus: "paid",
+      paymentMethod: paymentMethod === "mpesa" ? "M-Pesa" : "Card",
       timestamp: Date.now(),
       courierRef: "",
     };
 
+    // Reduce stock quantities
+    const updatedCatalog = catalog.map(product => {
+      const orderItem = checkoutItems.find(item => item.id === product.id);
+      if (orderItem) {
+        const newQuantity = (product.stockQuantity ?? 10) - (orderItem.quantity || 1);
+        const newStockStatus = newQuantity <= 0 ? "out_of_stock" : newQuantity <= 3 ? "low_stock" : "in_stock";
+        return { ...product, stockQuantity: Math.max(0, newQuantity), stockStatus: newStockStatus };
+      }
+      return product;
+    });
+
+    setCatalog(updatedCatalog);
+    await saveCatalog(updatedCatalog);
+
     const updated = [order, ...orders];
     await storageApi.set(ORDERS_KEY, JSON.stringify(updated));
     setOrders(updated);
+
+    // Send order confirmation email
+    if (order.customerEmail) {
+      await sendEmailNotification("orderConfirmation", {
+        email: order.customerEmail,
+        customerName: order.customer,
+        orderId: order.id,
+        total: order.total,
+        itemCount: order.itemCount,
+        paymentMethod: order.paymentMethod
+      });
+    }
+
     setPaying(false);
     setLastOrder(order);
     if (!selected) clearCart();
@@ -2070,15 +2169,42 @@ export default function App() {
               {/* Payment Method */}
               <div style={{ ...panel, marginTop: 20 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, color: "var(--ink)" }}>Payment Method</h3>
-                <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 14, background: "#f9f9f7", display: "flex", alignItems: "center", gap: 12 }}>
+                
+                {/* M-Pesa Option */}
+                <button 
+                  onClick={() => setPaymentMethod("mpesa")}
+                  style={{ width: "100%", border: `2px solid ${paymentMethod === "mpesa" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "mpesa" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, marginBottom: 10, cursor: "pointer", transition: "all 0.2s" }}
+                >
                   <div style={{ width: 40, height: 40, background: "#0ca856", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>M</div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, textAlign: "left" }}>
                     <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>M-Pesa</div>
-                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>You'll receive an STK prompt on your phone</div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Pay via STK push to your phone</div>
                   </div>
-                  <input type="radio" checked disabled style={{ cursor: "not-allowed" }} />
-                </div>
-                <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Pay securely with M-Pesa. STK will be sent to your provided phone number.</p>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${paymentMethod === "mpesa" ? "var(--green)" : "var(--line)"}`, background: paymentMethod === "mpesa" ? "var(--green)" : "transparent", display: "grid", placeItems: "center" }}>
+                    {paymentMethod === "mpesa" && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />}
+                  </div>
+                </button>
+
+                {/* Card Option */}
+                <button 
+                  onClick={() => setPaymentMethod("card")}
+                  style={{ width: "100%", border: `2px solid ${paymentMethod === "card" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "card" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "all 0.2s" }}
+                >
+                  <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>💳</div>
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Credit/Debit Card</div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Visa, Mastercard via secure gateway</div>
+                  </div>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${paymentMethod === "card" ? "var(--green)" : "var(--line)"}`, background: paymentMethod === "card" ? "var(--green)" : "transparent", display: "grid", placeItems: "center" }}>
+                    {paymentMethod === "card" && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />}
+                  </div>
+                </button>
+
+                <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                  {paymentMethod === "mpesa" 
+                    ? "M-Pesa STK prompt will be sent to your phone number. Enter your PIN to complete payment." 
+                    : "You'll be redirected to a secure payment page to enter your card details."}
+                </p>
               </div>
 
               {/* Place Order Button */}
@@ -2464,11 +2590,14 @@ export default function App() {
                   </div>
 
                   <input value={adminForm.tags} onChange={(e) => setAdminForm((s) => ({ ...s, tags: e.target.value }))} placeholder="Tags (comma separated)" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
-                  <select value={adminForm.stockStatus} onChange={(e) => setAdminForm((s) => ({ ...s, stockStatus: e.target.value }))} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
-                    <option value="in_stock">In stock</option>
-                    <option value="low_stock">Low stock</option>
-                    <option value="out_of_stock">Out of stock</option>
-                  </select>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <select value={adminForm.stockStatus} onChange={(e) => setAdminForm((s) => ({ ...s, stockStatus: e.target.value }))} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
+                      <option value="in_stock">In stock</option>
+                      <option value="low_stock">Low stock</option>
+                      <option value="out_of_stock">Out of stock</option>
+                    </select>
+                    <input value={adminForm.stockQuantity} onChange={(e) => setAdminForm((s) => ({ ...s, stockQuantity: e.target.value }))} placeholder="Stock quantity" type="number" min="0" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
                 </div>
                 {adminMsg && <div style={{ fontSize: 12, color: adminMsg.includes("updated") || adminMsg.includes("added") ? "#0b8f41" : "#b91c1c", marginTop: 8 }}>{adminMsg}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -2489,7 +2618,10 @@ export default function App() {
                             <div style={{ fontWeight: 700, color: "var(--ink)" }}>{p.brand} {p.name}</div>
                             <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.spec}</div>
                           </div>
-                          <span style={{ border: `1px solid ${stockMeta.border}`, borderRadius: 999, padding: "3px 8px", background: stockMeta.bg, color: stockMeta.color, fontSize: 11, fontWeight: 700, alignSelf: "start" }}>{stockMeta.label}</span>
+                          <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
+                            <span style={{ border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 8px", background: "#f9fafb", color: "var(--text-mid)", fontSize: 11, fontWeight: 700 }}>Qty: {p.stockQuantity ?? 10}</span>
+                            <span style={{ border: `1px solid ${stockMeta.border}`, borderRadius: 999, padding: "3px 8px", background: stockMeta.bg, color: stockMeta.color, fontSize: 11, fontWeight: 700 }}>{stockMeta.label}</span>
+                          </div>
                         </div>
                         <div style={{ fontSize: 12, color: "var(--text-mid)" }}>Nafuu: {fmt(p.price)} · Market: {fmt(p.market)} · {p.category}</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
