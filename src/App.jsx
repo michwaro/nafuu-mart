@@ -11,6 +11,11 @@ import {
   isSupabaseMode,
   restoreSession,
 } from "./authProvider";
+import {
+  initiatePesapalPayment,
+  checkPesapalPaymentStatus,
+  isPesapalConfigured,
+} from "./pesapalProvider";
 
 const ORDERS_KEY = "nafuu-orders";
 const CART_KEY = "nafuu-cart";
@@ -296,6 +301,7 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState({ name: "", phone: "", location: "", notes: "" });
   const [paymentMethod, setPaymentMethod] = useState("mpesa");
+  const [pesapalOrderTracking, setPesapalOrderTracking] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [paying, setPaying] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
@@ -566,6 +572,91 @@ export default function App() {
     if (next) setTrackedOrder(next);
   }, [orders, trackedOrder?.id]);
 
+  // Handle Pesapal payment callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const orderTrackingId = urlParams.get("OrderTrackingId");
+    const merchantReference = urlParams.get("OrderMerchantReference");
+    
+    if (orderTrackingId) {
+      // Clear URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Check payment status
+      checkPesapalPaymentStatus(orderTrackingId)
+        .then((statusResponse) => {
+          // Find the order with this tracking ID
+          const orderToUpdate = orders.find(
+            (o) => o.pesapalOrderTrackingId === orderTrackingId
+          );
+          
+          if (orderToUpdate) {
+            const statusCode = statusResponse.payment_status_description || statusResponse.statusCode || 0;
+            const isPaid = statusCode === 1 || statusCode === "1" || 
+                          statusResponse.status === "completed" || 
+                          statusResponse.status === "Completed";
+            
+            // Update order status
+            const updatedOrder = {
+              ...orderToUpdate,
+              status: isPaid ? "confirmed" : "payment_failed",
+              paymentStatus: isPaid ? "paid" : "failed",
+              pesapalPaymentStatusCode: statusCode,
+              pesapalPaymentMethod: statusResponse.payment_method || statusResponse.paymentMethod,
+            };
+            
+            const updatedOrders = orders.map((o) =>
+              o.id === orderToUpdate.id ? updatedOrder : o
+            );
+            
+            setOrders(updatedOrders);
+            storageApi.set(ORDERS_KEY, JSON.stringify(updatedOrders));
+            
+            // Send confirmation email if payment successful
+            if (isPaid && updatedOrder.customerEmail) {
+              sendEmailNotification("orderConfirmation", {
+                email: updatedOrder.customerEmail,
+                customerName: updatedOrder.customer,
+                orderId: updatedOrder.id,
+                total: updatedOrder.total,
+                itemCount: updatedOrder.itemCount,
+                paymentMethod: updatedOrder.paymentMethod
+              });
+            }
+            
+            // Reduce stock quantities if payment successful
+            if (isPaid) {
+              const updatedCatalog = catalog.map(product => {
+                const orderItem = updatedOrder.items.find(item => item.id === product.id);
+                if (orderItem) {
+                  const newQuantity = (product.stockQuantity ?? 10) - (orderItem.quantity || 1);
+                  const newStockStatus = newQuantity <= 0 ? "out_of_stock" : newQuantity <= 3 ? "low_stock" : "in_stock";
+                  return { ...product, stockQuantity: Math.max(0, newQuantity), stockStatus: newStockStatus };
+                }
+                return product;
+              });
+              setCatalog(updatedCatalog);
+              saveCatalog(updatedCatalog);
+            }
+            
+            // Show order confirmation or error
+            setLastOrder(updatedOrder);
+            if (isPaid) {
+              clearCart();
+              setPage("confirm");
+            } else {
+              alert("Payment was not successful. Please try again or use M-Pesa.");
+              setPage("checkout");
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("Error checking Pesapal payment status:", error);
+          alert("Failed to verify payment status. Please contact support with your order reference.");
+        });
+    }
+  }, []);
+
   const filtered = catalog.filter((p) => {
     const query = page === "products" ? debouncedSearch : search;
     const q = query.trim().toLowerCase();
@@ -818,6 +909,92 @@ export default function App() {
     }
 
     setPaying(true);
+
+    // Handle Pesapal payment flow
+    if (paymentMethod === "pesapal") {
+      if (!isPesapalConfigured()) {
+        setPaying(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          checkout: "Pesapal payment is not configured. Please contact support.",
+        }));
+        return;
+      }
+
+      const firstItem = checkoutItems[0];
+      const normalizedItems = checkoutItems.map((item) => ({
+        id: item.id,
+        brand: item.brand,
+        name: item.name,
+        spec: item.spec,
+        grade: GRADE_INFO[item.grade]?.label || item.grade,
+        quantity: item.quantity || 1,
+        price: item.price,
+        market: item.market,
+        image: item.image || "",
+      }));
+
+      const orderData = {
+        id: genRef(),
+        customer: form.name.trim(),
+        customerEmail: currentUser?.email || "",
+        phone: form.phone.trim(),
+        location: form.location.trim(),
+        product:
+          checkoutItemCount === 1
+            ? `${firstItem.brand} ${firstItem.name} ${firstItem.spec}`
+            : `${checkoutItemCount} items`,
+        total: checkoutSubtotal,
+        items: normalizedItems,
+      };
+
+      try {
+        const pesapalResponse = await initiatePesapalPayment(orderData);
+        
+        if (pesapalResponse.redirect_url) {
+          // Store pending order with Pesapal tracking ID
+          const pendingOrder = {
+            ...orderData,
+            grade:
+              checkoutItemCount === 1
+                ? GRADE_INFO[firstItem.grade]?.label || firstItem.grade
+                : "Mixed",
+            price: checkoutSubtotal,
+            itemCount: checkoutItemCount,
+            status: "pending_payment",
+            paymentStatus: "pending",
+            paymentMethod: "Pesapal",
+            pesapalOrderTrackingId: pesapalResponse.order_tracking_id,
+            pesapalMerchantReference: pesapalResponse.merchant_reference,
+            timestamp: Date.now(),
+            courierRef: "",
+            notes: form.notes.trim(),
+          };
+
+          // Save pending order
+          const updated = [pendingOrder, ...orders];
+          await storageApi.set(ORDERS_KEY, JSON.stringify(updated));
+          setOrders(updated);
+
+          // Store tracking ID and redirect
+          setPesapalOrderTracking(pesapalResponse.order_tracking_id);
+          window.location.href = pesapalResponse.redirect_url;
+          return;
+        } else {
+          throw new Error("Failed to get Pesapal payment URL");
+        }
+      } catch (error) {
+        console.error("Pesapal payment error:", error);
+        setPaying(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          checkout: "Failed to initiate Pesapal payment. Please try again or use M-Pesa.",
+        }));
+        return;
+      }
+    }
+
+    // M-Pesa payment flow (simulated)
     await new Promise((r) => setTimeout(r, 2000));
 
     const firstItem = checkoutItems[0];
@@ -854,7 +1031,7 @@ export default function App() {
       items: normalizedItems,
       status: "confirmed",
       paymentStatus: "paid",
-      paymentMethod: paymentMethod === "mpesa" ? "M-Pesa" : "Card",
+      paymentMethod: "M-Pesa",
       timestamp: Date.now(),
       courierRef: "",
     };
@@ -2185,25 +2362,25 @@ export default function App() {
                   </div>
                 </button>
 
-                {/* Card Option */}
+                {/* Pesapal Option (Cards + Mobile Money) */}
                 <button 
-                  onClick={() => setPaymentMethod("card")}
-                  style={{ width: "100%", border: `2px solid ${paymentMethod === "card" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "card" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "all 0.2s" }}
+                  onClick={() => setPaymentMethod("pesapal")}
+                  style={{ width: "100%", border: `2px solid ${paymentMethod === "pesapal" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "pesapal" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "all 0.2s" }}
                 >
                   <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>💳</div>
                   <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Credit/Debit Card</div>
-                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Visa, Mastercard via secure gateway</div>
+                    <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Pesapal (Cards + Airtel)</div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Visa, Mastercard, Airtel Money via Pesapal</div>
                   </div>
-                  <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${paymentMethod === "card" ? "var(--green)" : "var(--line)"}`, background: paymentMethod === "card" ? "var(--green)" : "transparent", display: "grid", placeItems: "center" }}>
-                    {paymentMethod === "card" && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />}
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${paymentMethod === "pesapal" ? "var(--green)" : "var(--line)"}`, background: paymentMethod === "pesapal" ? "var(--green)" : "transparent", display: "grid", placeItems: "center" }}>
+                    {paymentMethod === "pesapal" && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />}
                   </div>
                 </button>
 
                 <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
                   {paymentMethod === "mpesa" 
                     ? "M-Pesa STK prompt will be sent to your phone number. Enter your PIN to complete payment." 
-                    : "You'll be redirected to a secure payment page to enter your card details."}
+                    : "You'll be redirected to Pesapal's secure payment page for card or Airtel Money payment."}
                 </p>
               </div>
 
