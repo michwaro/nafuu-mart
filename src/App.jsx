@@ -318,6 +318,16 @@ export default function App() {
   const [authStep, setAuthStep] = useState("email");
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [resetForm, setResetForm] = useState({ password: "", confirmPassword: "" });
+  
+  // Nice to Have Feature States
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponError, setCouponError] = useState("");
+  const [couponInput, setCouponInput] = useState("");
+  const [reviews, setReviews] = useState({});
+  const [isGuest, setIsGuest] = useState(false);
+  const [compareList, setCompareList] = useState([]);
+  const [stockAlerts, setStockAlerts] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [verificationEmail, setVerificationEmail] = useState("");
   const [authErrors, setAuthErrors] = useState({});
@@ -530,12 +540,34 @@ export default function App() {
   const checkoutItemCount = checkoutItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
   const checkoutSubtotal = checkoutItems.reduce((sum, item) => sum + item.price * (item.quantity || 1), 0);
   const checkoutSavings = checkoutItems.reduce((sum, item) => sum + (item.market - item.price) * (item.quantity || 1), 0);
+  const checkoutDiscount = appliedCoupon ? Math.floor(checkoutSubtotal * appliedCoupon.discount) : 0;
+  const checkoutTotal = checkoutSubtotal - checkoutDiscount;
 
   useEffect(() => {
     loadOrders();
     loadCart();
     loadWishlist();
     loadCatalog();
+    
+    // Load reviews
+    const savedReviews = storageApi.get("nafuu-reviews");
+    if (savedReviews) {
+      try {
+        setReviews(JSON.parse(savedReviews));
+      } catch (e) {
+        console.error("Error loading reviews:", e);
+      }
+    }
+    
+    // Load stock alerts
+    const savedAlerts = storageApi.get("nafuu-stock-alerts");
+    if (savedAlerts) {
+      try {
+        setStockAlerts(JSON.parse(savedAlerts));
+      } catch (e) {
+        console.error("Error loading stock alerts:", e);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -732,6 +764,147 @@ export default function App() {
     console.log(`Would send email to ${template.to}:`, template.subject);
     
     return { success: true, type, timestamp: Date.now() };
+  };
+
+  // Nice to Have Feature Functions
+
+  // Coupon/Discount System
+  const VALID_COUPONS = {
+    "SAVE10": { discount: 0.10, label: "10% off" },
+    "SAVE20": { discount: 0.20, label: "20% off" },
+    "WELCOME5": { discount: 0.05, label: "5% off" },
+    "STUDENT15": { discount: 0.15, label: "15% student discount" },
+    "FIRST20": { discount: 0.20, label: "20% first purchase" }
+  };
+
+  const applyCoupon = (couponCode) => {
+    const code = couponCode.trim().toUpperCase();
+    if (!code) {
+      setCouponError("Enter a coupon code");
+      return;
+    }
+    
+    if (VALID_COUPONS[code]) {
+      setAppliedCoupon({ code, ...VALID_COUPONS[code] });
+      setCouponError("");
+      setCouponInput("");
+      return true;
+    } else {
+      setCouponError("Invalid coupon code");
+      return false;
+    }
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError("");
+  };
+
+  // Product Reviews & Ratings
+  const submitReview = (productId, rating, reviewText) => {
+    if (!rating || rating < 1 || rating > 5) {
+      alert("Please select a rating between 1 and 5");
+      return;
+    }
+    
+    const newReviews = { ...reviews };
+    if (!newReviews[productId]) newReviews[productId] = [];
+    
+    newReviews[productId].push({
+      id: Math.random().toString(36).substring(7),
+      rating: parseInt(rating),
+      text: reviewText.trim(),
+      author: currentUser?.email || "Anonymous",
+      timestamp: Date.now()
+    });
+    
+    setReviews(newReviews);
+    storageApi.set("nafuu-reviews", JSON.stringify(newReviews));
+    return true;
+  };
+
+  const getProductReviews = (productId) => {
+    return reviews[productId] || [];
+  };
+
+  const getProductAverageRating = (productId) => {
+    const productReviews = getProductReviews(productId);
+    if (productReviews.length === 0) return 0;
+    const sum = productReviews.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / productReviews.length).toFixed(1);
+  };
+
+  // Product Comparison
+  const toggleComparison = (product) => {
+    if (compareList.find(p => p.id === product.id)) {
+      setCompareList(compareList.filter(p => p.id !== product.id));
+    } else {
+      if (compareList.length >= 3) {
+        alert("You can compare only 3 products at a time");
+        return;
+      }
+      setCompareList([...compareList, product]);
+    }
+  };
+
+  const isInComparison = (productId) => {
+    return compareList.some(p => p.id === productId);
+  };
+
+  // Stock Alerts
+  const toggleStockAlert = (product) => {
+    let updatedAlerts;
+    if (stockAlerts.find(p => p.id === product.id)) {
+      updatedAlerts = stockAlerts.filter(p => p.id !== product.id);
+    } else {
+      updatedAlerts = [...stockAlerts, { id: product.id, name: `${product.brand} ${product.name}`, email: currentUser?.email }];
+    }
+    setStockAlerts(updatedAlerts);
+    storageApi.set("nafuu-stock-alerts", JSON.stringify(updatedAlerts));
+  };
+
+  const hasStockAlert = (productId) => {
+    return stockAlerts.some(p => p.id === productId);
+  };
+
+  // Admin Analytics
+  const calculateAdminStats = () => {
+    if (orders.length === 0) {
+      setAdminStats(null);
+      return;
+    }
+
+    const totalRevenue = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const totalOrders = orders.length;
+    const averageOrderValue = totalRevenue / totalOrders;
+    
+    const topProducts = {};
+    orders.forEach(order => {
+      order.items?.forEach(item => {
+        topProducts[item.id] = (topProducts[item.id] || 0) + 1;
+      });
+    });
+    
+    const topProductsList = Object.entries(topProducts)
+      .map(([id, count]) => {
+        const product = catalog.find(p => p.id === id);
+        return { id, name: product?.name, brand: product?.brand, count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const outOfStock = catalog.filter(p => p.stockStatus === "out_of_stock").length;
+    const lowStock = catalog.filter(p => p.stockStatus === "low_stock").length;
+
+    setAdminStats({
+      totalRevenue,
+      totalOrders,
+      averageOrderValue: averageOrderValue.toFixed(0),
+      topProducts: topProductsList,
+      outOfStock,
+      lowStock,
+      totalProducts: catalog.length
+    });
   };
 
   const handleImageUpload = async (file, isMainImage = false) => {
@@ -944,7 +1117,9 @@ export default function App() {
           checkoutItemCount === 1
             ? `${firstItem.brand} ${firstItem.name} ${firstItem.spec}`
             : `${checkoutItemCount} items`,
-        total: checkoutSubtotal,
+        total: checkoutTotal,
+        discount: checkoutDiscount,
+        couponCode: appliedCoupon?.code || null,
         items: normalizedItems,
       };
 
@@ -960,6 +1135,9 @@ export default function App() {
                 ? GRADE_INFO[firstItem.grade]?.label || firstItem.grade
                 : "Mixed",
             price: checkoutSubtotal,
+            discount: checkoutDiscount,
+            total: checkoutTotal,
+            couponCode: appliedCoupon?.code || null,
             itemCount: checkoutItemCount,
             status: "pending_payment",
             paymentStatus: "pending",
@@ -1026,14 +1204,16 @@ export default function App() {
           ? GRADE_INFO[firstItem.grade]?.label || firstItem.grade
           : "Mixed",
       price: checkoutSubtotal,
-      total: checkoutSubtotal,
+      discount: checkoutDiscount,
+      total: checkoutTotal,
       itemCount: checkoutItemCount,
       items: normalizedItems,
+      couponCode: appliedCoupon?.code || null,
       status: "confirmed",
       paymentStatus: "paid",
       paymentMethod: "M-Pesa",
       timestamp: Date.now(),
-      courierRef: "",
+      courierRef: "،"
     };
 
     // Reduce stock quantities
@@ -1517,6 +1697,14 @@ export default function App() {
                   </span>
                 )}
               </button>
+              <button onClick={() => setPage("compare")} style={{ ...iconBtn, position: "relative" }} title="Compare Products">
+                <span>⚖️</span>
+                {compareList.length > 0 && (
+                  <span style={{ position: "absolute", top: -4, right: -4, background: "var(--green)", color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 700, minWidth: 18, height: 18, display: "grid", placeItems: "center", padding: "0 5px" }}>
+                    {compareList.length}
+                  </span>
+                )}
+              </button>
               <button onClick={() => setPage("cart")} style={{ ...iconBtn, position: "relative" }} title="Shopping Cart">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
@@ -1886,7 +2074,7 @@ export default function App() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 18 }}>
                 {catalog.slice(0, 6).map((p, i) => (
-                <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} />
+                <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} toggleComparison={toggleComparison} isInComparison={isInComparison} toggleStockAlert={toggleStockAlert} hasStockAlert={hasStockAlert} getProductReviews={getProductReviews} getProductAverageRating={getProductAverageRating} />
               ))}
             </div>
           </div>
@@ -2082,7 +2270,7 @@ export default function App() {
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 18 }}>
                 {sortedFiltered.map((p, i) => (
-                  <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} />
+                  <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} toggleComparison={toggleComparison} isInComparison={isInComparison} toggleStockAlert={toggleStockAlert} hasStockAlert={hasStockAlert} getProductReviews={getProductReviews} getProductAverageRating={getProductAverageRating} />
                 ))}
               </div>
             </div>
@@ -2343,6 +2531,64 @@ export default function App() {
                 </div>
               </div>
               
+              {/* Coupon Code Section */}
+              <div style={{ ...panel, marginTop: 20 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, color: "var(--ink)" }}>Discount Code</h3>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value)}
+                      placeholder="Enter coupon code (e.g., SAVE10, WELCOME5)"
+                      style={{ width: "100%", border: `1px solid ${couponError ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 14px", fontSize: 15 }}
+                    />
+                    {couponError && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{couponError}</div>}
+                  </div>
+                  <button
+                    onClick={() => applyCoupon(couponInput)}
+                    disabled={!couponInput.trim()}
+                    style={{ border: "none", borderRadius: 10, padding: "12px 20px", background: "var(--ink)", color: "white", fontWeight: 600, cursor: couponInput.trim() ? "pointer" : "not-allowed", opacity: couponInput.trim() ? 1 : 0.5 }}
+                  >
+                    Apply
+                  </button>
+                </div>
+                {appliedCoupon && (
+                  <div style={{ marginTop: 12, padding: 10, background: "#f0fdf4", border: "1px solid var(--green)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>✓ {appliedCoupon.code}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{appliedCoupon.label} applied • Save KSh {fmt(checkoutDiscount)}</div>
+                    </div>
+                    <button
+                      onClick={removeCoupon}
+                      style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Guest Checkout Option */}
+              <div style={{ ...panel, marginTop: 20 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={isGuest}
+                    onChange={(e) => setIsGuest(e.target.checked)}
+                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 14, color: "var(--ink)", fontWeight: 500 }}>
+                    {isGuest ? "Checking out as guest" : "Continue as guest (no account needed)"}
+                  </span>
+                </label>
+                {isGuest && (
+                  <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                    You will receive an order confirmation via email. No account or password required!
+                  </p>
+                )}
+              </div>
+              
               {/* Payment Method */}
               <div style={{ ...panel, marginTop: 20 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, color: "var(--ink)" }}>Payment Method</h3>
@@ -2431,6 +2677,12 @@ export default function App() {
                     <span>Subtotal ({checkoutItemCount} items)</span>
                     <span style={{ fontWeight: 600 }}>{fmt(checkoutSubtotal)}</span>
                   </div>
+                  {appliedCoupon && (
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 14, color: "var(--green)" }}>
+                      <span>{appliedCoupon.code} ({Math.round(appliedCoupon.discount * 100)}% off)</span>
+                      <span style={{ fontWeight: 600 }}>-{fmt(checkoutDiscount)}</span>
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 14 }}>
                     <span>Delivery Fee</span>
                     <span style={{ fontWeight: 600, color: deliveryFee === 0 ? "var(--green)" : "var(--ink)" }}>
@@ -2439,7 +2691,7 @@ export default function App() {
                   </div>
                   <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12, display: "flex", justifyContent: "space-between" }}>
                     <span style={{ fontWeight: 700, fontSize: 15 }}>Total</span>
-                    <span style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 900, color: "var(--ink)" }}>{fmt(total)}</span>
+                    <span style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 900, color: "var(--ink)" }}>{fmt(checkoutTotal + deliveryFee)}</span>
                   </div>
                 </div>
               </div>
@@ -2623,7 +2875,92 @@ export default function App() {
           ) : (
             <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 24 }}>
               {wishlist.map((p, i) => (
-                <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} />
+                <ProductCard key={p.id} p={withStockStatus(p)} i={i} onSelect={() => { setSelected(withStockStatus(p)); setPage("product"); }} addToCart={addToCart} toggleWishlist={toggleWishlist} isInWishlist={isInWishlist} toggleComparison={toggleComparison} isInComparison={isInComparison} toggleStockAlert={toggleStockAlert} hasStockAlert={hasStockAlert} getProductReviews={getProductReviews} getProductAverageRating={getProductAverageRating} />
+              ))}
+            </div>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (page === "compare") {
+    return (
+      <>
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 24px" }}>
+          <h1 style={{ ...h2, marginBottom: 8, fontSize: 32 }}>Compare Products</h1>
+          <p style={pMuted}>
+            {compareList.length === 0 ? "No products selected for comparison" : `Comparing ${compareList.length} product${compareList.length !== 1 ? "s" : ""}`}
+          </p>
+
+          {compareList.length === 0 ? (
+            <div style={{ ...panel, marginTop: 32, textAlign: "center", padding: "60px 24px" }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>⚖️</div>
+              <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "var(--ink)" }}>No products to compare</h3>
+              <p style={{ color: "var(--muted)", marginBottom: 24 }}>Click the compare icon on products to add them here!</p>
+              <button onClick={() => setPage("products")} style={solidBtn}>
+                Browse Products
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginTop: 24, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                <thead>
+                  <tr style={{ background: "var(--bg-soft)", borderBottom: "2px solid var(--line)" }}>
+                    <th style={{ padding: 12, textAlign: "left", fontWeight: 700, color: "var(--ink)" }}>Feature</th>
+                    {compareList.map((p) => (
+                      <th key={p.id} style={{ padding: 12, textAlign: "left", fontWeight: 700, color: "var(--ink)", minWidth: 220 }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{p.brand} {p.name}</div>
+                          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{p.spec}</div>
+                        </div>
+                        <button
+                          onClick={() => toggleComparison(p)}
+                          style={{ fontSize: 12, padding: "4px 8px", background: "#fee2e2", color: "#b91c1c", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}
+                        >
+                          Remove
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: "Price", getter: (p) => fmt(p.price) },
+                    { label: "Market Price", getter: (p) => fmt(p.market) },
+                    { label: "You Save", getter: (p) => fmt(p.market - p.price) },
+                    { label: "Category", getter: (p) => p.category },
+                    { label: "Grade", getter: (p) => p.grade },
+                    { label: "Stock", getter: (p) => p.stockQuantity ?? 10 },
+                    { label: "Rating", getter: (p) => getProductAverageRating(p.id) },
+                  ].map((row, idx) => (
+                    <tr key={row.label} style={{ borderBottom: "1px solid var(--line)", background: idx % 2 === 0 ? "var(--bg-soft)" : "white" }}>
+                      <td style={{ padding: 12, fontWeight: 600, color: "var(--ink)" }}>{row.label}</td>
+                      {compareList.map((p) => (
+                        <td key={`${p.id}-${row.label}`} style={{ padding: 12, color: "var(--text-mid)" }}>
+                          {row.getter(p)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          
+          {compareList.length > 0 && (
+            <div style={{ marginTop: 24, padding: 16, background: "var(--bg-soft)", borderRadius: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {compareList.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setSelected(p); setPage("product"); }}
+                  style={{ background: "var(--green)", color: "white", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 600, cursor: "pointer", fontSize: 14 }}
+                >
+                  View {p.brand} {p.name}
+                </button>
               ))}
             </div>
           )}
@@ -2784,7 +3121,57 @@ export default function App() {
               </aside>
 
               <section style={{ ...panel, maxHeight: "70vh", overflow: "auto" }}>
-                <h3 style={{ fontSize: 16, marginBottom: 10, color: "var(--ink)", fontWeight: 700 }}>Products ({catalog.length})</h3>
+                {/* Analytics Toggle Button */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid var(--line)" }}>
+                  <h3 style={{ fontSize: 16, marginBottom: 0, color: "var(--ink)", fontWeight: 700 }}>Products ({catalog.length})</h3>
+                  <button
+                    onClick={() => calculateAdminStats()}
+                    style={{ background: "var(--ink)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    📊 View Analytics
+                  </button>
+                </div>
+                
+                {/* Analytics Display */}
+                {adminStats && (
+                  <div style={{ background: "#f0f9ff", border: "1px solid #0284c7", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0c4a6e", marginBottom: 10 }}>Business Analytics</h4>
+                    <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 640 ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                      <div style={{ background: "white", padding: 10, borderRadius: 8, border: "1px solid #e0f2fe" }}>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Total Revenue</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0c4a6e" }}>KSh {fmt(adminStats.totalRevenue)}</div>
+                      </div>
+                      <div style={{ background: "white", padding: 10, borderRadius: 8, border: "1px solid #e0f2fe" }}>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Total Orders</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0c4a6e" }}>{adminStats.totalOrders}</div>
+                      </div>
+                      <div style={{ background: "white", padding: 10, borderRadius: 8, border: "1px solid #e0f2fe" }}>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Avg Order Value</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0c4a6e" }}>KSh {fmt(parseInt(adminStats.averageOrderValue))}</div>
+                      </div>
+                      <div style={{ background: "white", padding: 10, borderRadius: 8, border: "1px solid #e0f2fe" }}>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>Inventory Status</div>
+                        <div style={{ fontSize: 13, color: "#0c4a6e", fontWeight: 600 }}>
+                          <span style={{ color: "#ea580c" }}>{adminStats.outOfStock} out</span> | <span style={{ color: "#f59e0b" }}>{adminStats.lowStock} low</span>
+                        </div>
+                      </div>
+                    </div>
+                    {adminStats.topProducts.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#0c4a6e", marginBottom: 6 }}>Top 5 Products (by orders)</div>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          {adminStats.topProducts.map((p, i) => (
+                            <div key={p.id} style={{ fontSize: 12, color: "var(--ink)", display: "flex", justifyContent: "space-between", paddingBottom: 4, borderBottom: i < adminStats.topProducts.length - 1 ? "1px solid #e0f2fe" : "none" }}>
+                              <span>{i + 1}. {p.brand} {p.name}</span>
+                              <span style={{ fontWeight: 600 }}>{p.count} order{p.count !== 1 ? "s" : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <div style={{ display: "grid", gap: 8 }}>
                   {catalog.map((p) => {
                     const stockMeta = getStockMeta(p.stockStatus);
@@ -3285,26 +3672,36 @@ function ProductCard({
   addToCart = () => {},
   toggleWishlist = () => {},
   isInWishlist = () => false,
+  toggleComparison = () => {},
+  isInComparison = () => false,
+  toggleStockAlert = () => {},
+  hasStockAlert = () => false,
+  getProductReviews = () => [],
+  getProductAverageRating = () => 0,
 }) {
   const saving = p.market - p.price;
   const drop = Math.round((saving / p.market) * 100);
   const grade = GRADE_INFO[p.grade] || GRADE_INFO.A;
   const inWishlist = isInWishlist(p.id);
+  const inComparison = isInComparison(p.id);
+  const hasAlert = hasStockAlert(p.id);
   const stockMeta = getStockMeta(p.stockStatus);
   const available = isAvailable(p);
+  const reviewCount = getProductReviews(p.id).length;
+  const avgRating = getProductAverageRating(p.id);
   
   return (
     <div
-      style={{ textAlign: "left", background: "white", border: "1px solid var(--line)", borderRadius: 18, padding: 18, cursor: "pointer", animation: `fadeUp .45s ${Math.min(i, 8) * 0.06}s both`, boxShadow: "0 5px 22px rgba(0,0,0,.04)", transition: "transform .22s ease, box-shadow .22s ease, border-color .22s ease", position: "relative" }}
+      style={{ textAlign: "left", background: "white", border: `1px solid ${inComparison ? "var(--green)" : "var(--line)"}`, borderRadius: 18, padding: 18, cursor: "pointer", animation: `fadeUp .45s ${Math.min(i, 8) * 0.06}s both`, boxShadow: inComparison ? "0 5px 22px rgba(26,122,74,.15)" : "0 5px 22px rgba(0,0,0,.04)", transition: "transform .22s ease, box-shadow .22s ease, border-color .22s ease", position: "relative" }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-4px)";
-        e.currentTarget.style.boxShadow = "0 12px 26px rgba(0,0,0,.1)";
-        e.currentTarget.style.borderColor = "#b8b8a8";
+        e.currentTarget.style.boxShadow = inComparison ? "0 12px 26px rgba(26,122,74,.2)" : "0 12px 26px rgba(0,0,0,.1)";
+        e.currentTarget.style.borderColor = inComparison ? "var(--green)" : "#b8b8a8";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = "translateY(0)";
-        e.currentTarget.style.boxShadow = "0 5px 22px rgba(0,0,0,.04)";
-        e.currentTarget.style.borderColor = "var(--line)";
+        e.currentTarget.style.boxShadow = inComparison ? "0 5px 22px rgba(26,122,74,.15)" : "0 5px 22px rgba(0,0,0,.04)";
+        e.currentTarget.style.borderColor = inComparison ? "var(--green)" : "var(--line)";
       }}
     >
       <button
@@ -3327,8 +3724,10 @@ function ProductCard({
           <span style={{ color: "var(--ink)", fontSize: 12, fontWeight: 700 }}>{p.brand}</span>
           <span style={{ background: "var(--cherry)", color: "white", borderRadius: 999, padding: "4px 9px", fontSize: 11, fontWeight: 700 }}>{drop}% price drop</span>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ color: "var(--muted)", fontSize: 12, fontWeight: 600 }}>Rated 4.6/5</span>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+          <span style={{ color: "var(--muted)", fontSize: 12, fontWeight: 600 }}>
+            {reviewCount > 0 ? `⭐ ${avgRating}/5 (${reviewCount})` : "No reviews yet"}
+          </span>
           <span style={{ color: grade.color, fontSize: 12, fontWeight: 700 }}>{grade.label}</span>
         </div>
         <div style={{ marginBottom: 8 }}>
@@ -3343,13 +3742,37 @@ function ProductCard({
         <div style={{ marginTop: 8, fontSize: 12, color: "var(--accent-dark)", fontWeight: 700 }}>You save {fmt(saving)}</div>
       </div>
       
+      {/* Action Buttons */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleComparison(p);
+          }}
+          style={{ border: `2px solid ${inComparison ? "var(--green)" : "var(--line)"}`, background: inComparison ? "#f0fdf4" : "white", color: inComparison ? "var(--green)" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
+          title={inComparison ? "Remove from comparison" : "Add to comparison"}
+        >
+          ⚖️ Compare
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleStockAlert(p);
+          }}
+          style={{ border: `2px solid ${hasAlert ? "#f59e0b" : "var(--line)"}`, background: hasAlert ? "#fffbeb" : "white", color: hasAlert ? "#f59e0b" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
+          title={hasAlert ? "Remove stock alert" : "Notify when in stock"}
+        >
+          🔔 Alert
+        </button>
+      </div>
+      
       <button
         onClick={(e) => {
           e.stopPropagation();
           addToCart(p);
         }}
         disabled={!available}
-        style={{ width: "100%", marginTop: 16, border: "none", borderRadius: 10, background: available ? "var(--accent-dark)" : "#a8a8a8", color: "#fff", padding: "12px 16px", fontWeight: 700, fontSize: 14, cursor: available ? "pointer" : "not-allowed", transition: "all .2s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+        style={{ width: "100%", marginTop: 8, border: "none", borderRadius: 10, background: available ? "var(--accent-dark)" : "#a8a8a8", color: "#fff", padding: "12px 16px", fontWeight: 700, fontSize: 14, cursor: available ? "pointer" : "not-allowed", transition: "all .2s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
         onMouseEnter={(e) => {
           if (available) e.currentTarget.style.background = "var(--ink)";
         }}
