@@ -42,6 +42,50 @@ npm run dev
 npm run build
 ```
 
+## Premium Features
+
+### Coupon & Discount Code System
+Apply discount codes at checkout to reduce order total:
+- **Valid Codes**: SAVE10 (10%), SAVE20 (20%), WELCOME5 (5%), STUDENT15 (15%), FIRST20 (20%)
+- Shows discount savings in real-time order summary
+- Easily remove or apply different codes
+
+### Product Comparison Tool
+Compare up to 3 products side-by-side:
+- Click the "⚖️ Compare" button on any product
+- See detailed specs, prices, stock, and ratings in comparison table
+- Compare features like: Price, Savings, Category, Grade, Stock, Rating
+- Comparison badge shows selected products at a glance
+
+### Product Reviews & Ratings
+See customer feedback and submit your own reviews:
+- View average product ratings (⭐ 4.6/5 + review count)
+- Submit stars and free-text reviews
+- Reviews stored locally with customer email
+- Helps build community trust and engagement
+
+### Stock Alerts & Notifications
+Get notified when out-of-stock items become available:
+- Click "🔔 Alert" to subscribe to quantity notifications
+- Stores email preference for when item is back in stock
+- Manage alerts from wishlist and product pages
+- Never miss your wanted products
+
+### Guest Checkout Option
+Shop without creating an account:
+- Checkbox option on checkout page: "Continue as guest"
+- Receive order confirmation via email
+- No password or account required
+- Streamlined experience for first-time buyers
+
+### Admin Analytics Dashboard
+Real-time business insights:
+- Click "📊 View Analytics" in admin panel
+- See Total Revenue, Total Orders, Average Order Value
+- View Inventory Status (Out of stock / Low stock counts)
+- Top 5 Products by order volume
+- Helps track sales performance and inventory health
+
 ## Payment Integration
 
 ### Pesapal Setup (Card & Mobile Money Payments)
