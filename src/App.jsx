@@ -1,171 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  authSignInWithOAuth,
-  authRequestPasswordReset,
-  authResendVerification,
-  authSignIn,
+  authSubscribeToAuthChanges,
   authSignOut,
-  authSignUp,
-  authUpdatePassword,
-  getAuthRuntime,
-  isSupabaseMode,
   restoreSession,
 } from "./authProvider";
+
 import {
   initiatePesapalPayment,
   checkPesapalPaymentStatus,
   isPesapalConfigured,
 } from "./pesapalProvider";
+import {
+  initiateMpesaPayment,
+  checkMpesaPaymentStatus,
+  isMpesaConfigured,
+} from "./mpesaProvider";
+import { PageMeta, ProductMeta, BreadcrumbMeta, FAQMeta, LocalBusinessMeta, BlogArticleMeta } from "./seoHelpers";
+import { SOCIAL_PLATFORMS, generateShareLinks, SHARE_BUTTON_STYLE } from "./socialConfig";
+import { generateKeywords } from "./contentGenerator";
+import { PRODUCTS } from "./fallbackProducts";
 
 const ORDERS_KEY = "nafuu-orders";
 const CART_KEY = "nafuu-cart";
 const WISHLIST_KEY = "nafuu-wishlist";
 const CATALOG_KEY = "nafuu-catalog";
-
-const PRODUCTS = [
-  { id: "p01", brand: "HP", name: "Elitebook 840 G8", spec: "Core i5 11th Gen · 8GB · 256GB · Touch", grade: "A", price: 40000, market: 54000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch"], description: "Business-class HP Elitebook 840 G8 with 11th Gen Core i5, 8GB RAM, 256GB SSD, and responsive FHD touch display.", longDescription: "Overview: Business-class HP Elitebook 840 G8 with 11th Gen Core i5, 8GB RAM, 256GB SSD, and responsive FHD touch display. Specs: Core i5 11th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 40,000 vs market KSh 54,000 (save about KSh 14,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p02", brand: "HP", name: "Elitebook 840 G7", spec: "Core i5 10th Gen · 8GB · 256GB · Touch", grade: "A", price: 38000, market: 49000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch"], description: "Sleek 14-inch business ultrabook with 10th Gen Core i5 and intuitive touchscreen.", longDescription: "Overview: Sleek 14-inch business ultrabook with 10th Gen Core i5 and intuitive touchscreen. Specs: Core i5 10th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 38,000 vs market KSh 49,000 (save about KSh 11,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p03", brand: "HP", name: "Elitebook 830 G8", spec: "Core i7 11th Gen · 16GB · 512GB · Touch", grade: "A", price: 48500, market: 62000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch"], description: "Powerful 13.3-inch ultraportable with 11th Gen Core i7, 16GB RAM, and spacious 512GB SSD.", longDescription: "Overview: Powerful 13.3-inch ultraportable with 11th Gen Core i7, 16GB RAM, and spacious 512GB SSD. Specs: Core i7 11th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 48,500 vs market KSh 62,000 (save about KSh 13,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p04", brand: "HP", name: "Elitebook 830 G8", spec: "Core i7 11th Gen · 16GB · 512GB · No Touch", grade: "A", price: 46000, market: 59000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "High-performance compact laptop with Core i7 11th Gen and generous 16GB RAM for demanding workflows.", longDescription: "Overview: High-performance compact laptop with Core i7 11th Gen and generous 16GB RAM for demanding workflows. Specs: Core i7 11th Gen · 16GB · 512GB · No Touch. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 46,000 vs market KSh 59,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p05", brand: "HP", name: "Elitebook 830 G8", spec: "Core i7 11th Gen · 8GB · 256GB · Touch", grade: "A", price: 43000, market: 55000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch"], description: "Balanced configuration featuring Core i7 processing power with touchscreen convenience at an attractive price point.", longDescription: "Overview: Balanced configuration featuring Core i7 processing power with touchscreen convenience at an attractive price point. Specs: Core i7 11th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 43,000 vs market KSh 55,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p06", brand: "HP", name: "Elitebook 830 G7", spec: "Core i5 10th Gen · 8GB · 256GB · No Touch", grade: "A", price: 32000, market: 42000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Dependable business workhorse with 10th Gen Core i5 delivering smooth performance for everyday tasks.", longDescription: "Overview: Dependable business workhorse with 10th Gen Core i5 delivering smooth performance for everyday tasks. Specs: Core i5 10th Gen · 8GB · 256GB · No Touch. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 32,000 vs market KSh 42,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p07", brand: "HP", name: "Elitebook 1030 G3", spec: "Core i7 8th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 48500, market: 60000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "360", "touch"], description: "Versatile 2-in-1 convertible with 360-degree hinge transforms from laptop to tablet mode instantly.", longDescription: "Overview: Versatile 2-in-1 convertible with 360-degree hinge transforms from laptop to tablet mode instantly. Specs: Core i7 8th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 48,500 vs market KSh 60,000 (save about KSh 11,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p08", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 12th Gen · 16GB · 512GB · Touch", grade: "A", price: 74000, market: 90000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7", "touch"], description: "Flagship ThinkPad X1 Carbon featuring cutting-edge 12th Gen Intel Core i7 with hybrid architecture for exceptional performance.", longDescription: "Overview: Flagship ThinkPad X1 Carbon featuring cutting-edge 12th Gen Intel Core i7 with hybrid architecture for exceptional performance. Specs: Core i7 12th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 74,000 vs market KSh 90,000 (save about KSh 16,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p09", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 11th Gen · 16GB · 512GB · Touch", grade: "A", price: 61000, market: 75000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7", "touch"], description: "Award-winning X1 Carbon business laptop with 11th Gen Core i7 and ample 16GB memory for power users.", longDescription: "Overview: Award-winning X1 Carbon business laptop with 11th Gen Core i7 and ample 16GB memory for power users. Specs: Core i7 11th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 61,000 vs market KSh 75,000 (save about KSh 14,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p10", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 10th Gen · 16GB · 1TB · Touch", grade: "A", price: 56500, market: 70000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7", "touch"], description: "Exceptional storage capacity with full 1TB SSD paired with Core i7 10th Gen and 16GB RAM.", longDescription: "Overview: Exceptional storage capacity with full 1TB SSD paired with Core i7 10th Gen and 16GB RAM. Specs: Core i7 10th Gen · 16GB · 1TB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 56,500 vs market KSh 70,000 (save about KSh 13,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p11", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 10th Gen · 16GB · 512GB · Touch", grade: "A", price: 54000, market: 67000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7", "touch"], description: "Classic X1 Carbon configuration balancing performance, storage, and value.", longDescription: "Overview: Classic X1 Carbon configuration balancing performance, storage, and value. Specs: Core i7 10th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 54,000 vs market KSh 67,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p12", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 10th Gen · 16GB · 512GB · No Touch", grade: "A", price: 51000, market: 63000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7"], description: "Lightweight business ultrabook weighing under 1.2kg without compromising on Core i7 power and 16GB memory.", longDescription: "Overview: Lightweight business ultrabook weighing under 1.2kg without compromising on Core i7 power and 16GB memory. Specs: Core i7 10th Gen · 16GB · 512GB · No Touch. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 51,000 vs market KSh 63,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p13", brand: "Lenovo", name: "X1 Carbon", spec: "Core i7 8th Gen · 16GB · 512GB · Touch", grade: "A", price: 40000, market: 52000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "carbon", "lenovo", "i7", "touch"], description: "Budget-friendly entry into the X1 Carbon lineup with 8th Gen Core i7 still delivering strong performance.", longDescription: "Overview: Budget-friendly entry into the X1 Carbon lineup with 8th Gen Core i7 still delivering strong performance. Specs: Core i7 8th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 40,000 vs market KSh 52,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p14", brand: "Lenovo", name: "X1 Yoga", spec: "Core i7 11th Gen · 32GB · 512GB · Touch · 360°", grade: "A", price: 67000, market: 82000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "yoga", "lenovo", "i7", "360", "touch"], description: "Premium convertible powerhouse with massive 32GB RAM for intensive multitasking and virtualization.", longDescription: "Overview: Premium convertible powerhouse with massive 32GB RAM for intensive multitasking and virtualization. Specs: Core i7 11th Gen · 32GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 67,000 vs market KSh 82,000 (save about KSh 15,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p15", brand: "Lenovo", name: "X1 Yoga", spec: "Core i7 11th Gen · 16GB · 1TB · Touch · 360°", grade: "A", price: 67000, market: 82000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "yoga", "lenovo", "i7", "360", "touch"], description: "Massive 1TB storage meets versatile 2-in-1 design with Core i7 11th Gen performance.", longDescription: "Overview: Massive 1TB storage meets versatile 2-in-1 design with Core i7 11th Gen performance. Specs: Core i7 11th Gen · 16GB · 1TB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 67,000 vs market KSh 82,000 (save about KSh 15,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p16", brand: "Lenovo", name: "X1 Yoga", spec: "Core i7 11th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 62500, market: 78000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "yoga", "lenovo", "i7", "360", "touch"], description: "Well-balanced X1 Yoga with 11th Gen Core i7, 16GB RAM, and fast 512GB SSD in flexible 2-in-1 form.", longDescription: "Overview: Well-balanced X1 Yoga with 11th Gen Core i7, 16GB RAM, and fast 512GB SSD in flexible 2-in-1 form. Specs: Core i7 11th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 62,500 vs market KSh 78,000 (save about KSh 15,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p17", brand: "Lenovo", name: "X1 Yoga", spec: "Core i7 8th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 41500, market: 53000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x1", "yoga", "lenovo", "i7", "360", "touch"], description: "Affordable entry into premium 2-in-1 laptops with 8th Gen Core i7 and 16GB memory.", longDescription: "Overview: Affordable entry into premium 2-in-1 laptops with 8th Gen Core i7 and 16GB memory. Specs: Core i7 8th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 41,500 vs market KSh 53,000 (save about KSh 11,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p18", brand: "Lenovo", name: "P14s", spec: "Core i7 11th Gen · 16GB · 512GB · Touch · 4GB GPU", grade: "A", price: 55500, market: 69000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["p14s", "lenovo", "i7", "graphics"], description: "Mobile workstation with dedicated 4GB GPU perfect for CAD, 3D rendering, and video editing.", longDescription: "Overview: Mobile workstation with dedicated 4GB GPU perfect for CAD, 3D rendering, and video editing. Specs: Core i7 11th Gen · 16GB · 512GB · Touch · 4GB GPU. Best For: design tools, content creation, and heavier multitasking workloads. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 55,500 vs market KSh 69,000 (save about KSh 13,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p19", brand: "Lenovo", name: "P1", spec: "Core i7 9th Gen · 16GB · 512GB · 4GB GPU", grade: "A", price: 53000, market: 65000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["p1", "lenovo", "i7", "graphics"], description: "Professional-grade ThinkPad P1 workstation combining portability with discrete graphics performance.", longDescription: "Overview: Professional-grade ThinkPad P1 workstation combining portability with discrete graphics performance. Specs: Core i7 9th Gen · 16GB · 512GB · 4GB GPU. Best For: design tools, content creation, and heavier multitasking workloads. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 53,000 vs market KSh 65,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p20", brand: "Lenovo", name: "T14s", spec: "Core i7 10th Gen · 16GB · 256GB", grade: "A", price: 40000, market: 50000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["t14s", "lenovo", "i7"], description: "Slim and light ThinkPad T14s with Core i7 10th Gen and ample 16GB memory for efficient multitasking.", longDescription: "Overview: Slim and light ThinkPad T14s with Core i7 10th Gen and ample 16GB memory for efficient multitasking. Specs: Core i7 10th Gen · 16GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 40,000 vs market KSh 50,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p21", brand: "Lenovo", name: "ThinkBook", spec: "Core i7 10th Gen · 16GB · 512GB", grade: "A", price: 45000, market: 57000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["thinkbook", "lenovo", "i7"], description: "Modern business laptop with sleek design combining Core i7 power and generous 512GB storage.", longDescription: "Overview: Modern business laptop with sleek design combining Core i7 power and generous 512GB storage. Specs: Core i7 10th Gen · 16GB · 512GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 45,000 vs market KSh 57,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p22", brand: "Lenovo", name: "T480s", spec: "Core i5 8th Gen · 8GB · 256GB", grade: "B", price: 23500, market: 31000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["t480", "lenovo", "i5"], description: "Budget-friendly ThinkPad workhorse with Core i5 8th Gen delivering solid everyday performance.", longDescription: "Overview: Budget-friendly ThinkPad workhorse with Core i5 8th Gen delivering solid everyday performance. Specs: Core i5 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 23,500 vs market KSh 31,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p23", brand: "Lenovo", name: "X280", spec: "Core i5 8th Gen · 8GB · 256GB", grade: "B", price: 22500, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x280", "lenovo", "i5"], description: "Ultra-portable 12.5-inch ThinkPad perfect for mobile professionals prioritizing lightness.", longDescription: "Overview: Ultra-portable 12.5-inch ThinkPad perfect for mobile professionals prioritizing lightness. Specs: Core i5 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 22,500 vs market KSh 30,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p24", brand: "Lenovo", name: "Yoga 390", spec: "Core i5 8th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 28000, market: 37000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i5", "360", "touch"], description: "Compact convertible laptop with 360-degree hinge and touchscreen for versatile usage modes.", longDescription: "Overview: Compact convertible laptop with 360-degree hinge and touchscreen for versatile usage modes. Specs: Core i5 8th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 28,000 vs market KSh 37,000 (save about KSh 9,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p25", brand: "Lenovo", name: "X260 / X270", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 18000, market: 24000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x260", "x270", "lenovo", "i5"], description: "Reliable and affordable ThinkPad ultraportable in 12-inch form factor ideal for basic computing needs.", longDescription: "Overview: Reliable and affordable ThinkPad ultraportable in 12-inch form factor ideal for basic computing needs. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 18,000 vs market KSh 24,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p26", brand: "Lenovo", name: "X250", spec: "Core i5 5th Gen · 8GB · 256GB", grade: "B", price: 15500, market: 21000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["x250", "lenovo", "i5"], description: "Entry-level ThinkPad offering legendary durability and keyboard at an affordable price point.", longDescription: "Overview: Entry-level ThinkPad offering legendary durability and keyboard at an affordable price point. Specs: Core i5 5th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 15,500 vs market KSh 21,000 (save about KSh 5,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p27", brand: "Lenovo", name: "Yoga 11e", spec: "Core i5 7th Gen · 8GB · 128GB · Touch · 360°", grade: "B", price: 16500, market: 22000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i5", "360"], description: "Education-focused convertible laptop designed for durability and versatility.", longDescription: "Overview: Education-focused convertible laptop designed for durability and versatility. Specs: Core i5 7th Gen · 8GB · 128GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 16,500 vs market KSh 22,000 (save about KSh 5,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p28", brand: "Lenovo", name: "Yoga 300e", spec: "Intel Celeron · 4GB · 128GB · Touch · Stylus", grade: "B", price: 14000, market: 19000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "celeron", "stylus"], description: "Budget-friendly convertible with stylus support perfect for digital note-taking and basic computing.", longDescription: "Overview: Budget-friendly convertible with stylus support perfect for digital note-taking and basic computing. Specs: Intel Celeron · 4GB · 128GB · Touch · Stylus. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 14,000 vs market KSh 19,000 (save about KSh 5,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // Phones & Smartphones
-  { id: "p29", brand: "Samsung", name: "Galaxy A54", spec: "128GB · 8GB RAM · 5G · 50MP Camera", grade: "New", price: 38000, market: 45000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["samsung", "galaxy", "5g", "new"], description: "Brand new Samsung Galaxy A54 featuring vibrant 120Hz AMOLED display and powerful 50MP camera system.", longDescription: "Overview: Brand new Samsung Galaxy A54 featuring vibrant 120Hz AMOLED display and powerful 50MP camera system. Specs: 128GB · 8GB RAM · 5G · 50MP Camera. Best For: fast browsing, social apps, streaming, and always-connected daily communication. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 38,000 vs market KSh 45,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p30", brand: "Samsung", name: "Galaxy A34", spec: "128GB · 6GB RAM · 5G · 48MP Camera", grade: "New", price: 32000, market: 38000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["samsung", "galaxy", "5g", "new"], description: "Excellent mid-range 5G smartphone with stunning Super AMOLED screen and capable 48MP camera.", longDescription: "Overview: Excellent mid-range 5G smartphone with stunning Super AMOLED screen and capable 48MP camera. Specs: 128GB · 6GB RAM · 5G · 48MP Camera. Best For: fast browsing, social apps, streaming, and always-connected daily communication. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 32,000 vs market KSh 38,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p31", brand: "Samsung", name: "Galaxy S21", spec: "256GB · 8GB RAM · 5G · Flagship", grade: "A", price: 42000, market: 52000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["samsung", "galaxy", "5g", "flagship"], description: "Former flagship Galaxy S21 with premium features including 120Hz display, powerful Exynos processor, and professional-grade camera trio.", longDescription: "Overview: Former flagship Galaxy S21 with premium features including 120Hz display, powerful Exynos processor, and professional-grade camera trio. Specs: 256GB · 8GB RAM · 5G · Flagship. Best For: fast browsing, social apps, streaming, and always-connected daily communication. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 42,000 vs market KSh 52,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p32", brand: "Apple", name: "iPhone 12", spec: "128GB · 5G · A14 Bionic", grade: "A", price: 48000, market: 58000, category: "phone", image: "https://images.unsplash.com/photo-1511707267537-b85faf00021e?w=500&h=500&fit=crop", tags: ["iphone", "apple", "5g"], description: "Popular iPhone 12 with 5G connectivity and powerful A14 Bionic chip supporting latest iOS features.", longDescription: "Overview: Popular iPhone 12 with 5G connectivity and powerful A14 Bionic chip supporting latest iOS features. Specs: 128GB · 5G · A14 Bionic. Best For: fast browsing, social apps, streaming, and always-connected daily communication. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 48,000 vs market KSh 58,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p33", brand: "Apple", name: "iPhone 11", spec: "128GB · Dual Camera · A13 Bionic", grade: "A", price: 38000, market: 47000, category: "phone", image: "https://images.unsplash.com/photo-1511707267537-b85faf00021e?w=500&h=500&fit=crop", tags: ["iphone", "apple"], description: "Reliable iPhone 11 featuring excellent dual-camera system and A13 Bionic chip providing smooth iOS experience.", longDescription: "Overview: Reliable iPhone 11 featuring excellent dual-camera system and A13 Bionic chip providing smooth iOS experience. Specs: 128GB · Dual Camera · A13 Bionic. Best For: photos, social content creation, and dependable everyday smartphone use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 38,000 vs market KSh 47,000 (save about KSh 9,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p34", brand: "Tecno", name: "Spark 10 Pro", spec: "256GB · 8GB RAM · 50MP Camera", grade: "New", price: 18500, market: 22000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["tecno", "spark", "new"], description: "Latest Tecno Spark 10 Pro offering impressive value with large 256GB storage and capable 50MP camera.", longDescription: "Overview: Latest Tecno Spark 10 Pro offering impressive value with large 256GB storage and capable 50MP camera. Specs: 256GB · 8GB RAM · 50MP Camera. Best For: photos, social content creation, and dependable everyday smartphone use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 18,500 vs market KSh 22,000 (save about KSh 3,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p35", brand: "Infinix", name: "Note 30", spec: "256GB · 8GB RAM · 108MP Camera", grade: "New", price: 21000, market: 26000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["infinix", "note", "new"], description: "Outstanding camera phone with massive 108MP sensor capturing ultra-detailed photos.", longDescription: "Overview: Outstanding camera phone with massive 108MP sensor capturing ultra-detailed photos. Specs: 256GB · 8GB RAM · 108MP Camera. Best For: photos, social content creation, and dependable everyday smartphone use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 21,000 vs market KSh 26,000 (save about KSh 5,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p36", brand: "Xiaomi", name: "Redmi Note 12", spec: "128GB · 6GB RAM · 5G · 50MP Camera", grade: "New", price: 24000, market: 29000, category: "phone", image: "https://images.unsplash.com/photo-1610945415295-d9bbf7ce3350?w=500&h=500&fit=crop", tags: ["xiaomi", "redmi", "5g", "new"], description: "Popular Redmi Note 12 bringing 5G connectivity to mid-range pricing with reliable performance.", longDescription: "Overview: Popular Redmi Note 12 bringing 5G connectivity to mid-range pricing with reliable performance. Specs: 128GB · 6GB RAM · 5G · 50MP Camera. Best For: fast browsing, social apps, streaming, and always-connected daily communication. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 24,000 vs market KSh 29,000 (save about KSh 5,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // Audio Devices
-  { id: "p37", brand: "Apple", name: "AirPods Pro 2", spec: "Active Noise Cancellation · USB-C", grade: "New", price: 28000, market: 35000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["airpods", "apple", "earbuds", "anc", "new"], description: "Premium AirPods Pro 2nd Generation with industry-leading Active Noise Cancellation and Transparency mode.", longDescription: "Overview: Premium AirPods Pro 2nd Generation with industry-leading Active Noise Cancellation and Transparency mode. Specs: Active Noise Cancellation · USB-C. Best For: focused listening during commuting, travel, and busy environments. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 28,000 vs market KSh 35,000 (save about KSh 7,000). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p38", brand: "Apple", name: "AirPods 3", spec: "Spatial Audio · Wireless Charging", grade: "New", price: 19500, market: 24000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["airpods", "apple", "earbuds", "new"], description: "Latest AirPods 3rd Gen with immersive Spatial Audio and improved sound quality.", longDescription: "Overview: Latest AirPods 3rd Gen with immersive Spatial Audio and improved sound quality. Specs: Spatial Audio · Wireless Charging. Best For: music, calls, podcasts, and daily entertainment. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 19,500 vs market KSh 24,000 (save about KSh 4,500). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p39", brand: "Samsung", name: "Galaxy Buds2 Pro", spec: "Active Noise Cancellation · 360 Audio", grade: "New", price: 16000, market: 20000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["samsung", "earbuds", "anc", "new"], description: "Premium Samsung earbuds with intelligent ANC adapting to your environment and immersive 360 Audio.", longDescription: "Overview: Premium Samsung earbuds with intelligent ANC adapting to your environment and immersive 360 Audio. Specs: Active Noise Cancellation · 360 Audio. Best For: focused listening during commuting, travel, and busy environments. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 16,000 vs market KSh 20,000 (save about KSh 4,000). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p40", brand: "Anker", name: "Soundcore Life P3", spec: "ANC · 35hr Playtime · App Control", grade: "New", price: 5500, market: 7500, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["anker", "earbuds", "anc", "new"], description: "Budget-friendly earbuds delivering impressive Active Noise Cancellation and marathon 35-hour battery life.", longDescription: "Overview: Budget-friendly earbuds delivering impressive Active Noise Cancellation and marathon 35-hour battery life. Specs: ANC · 35hr Playtime · App Control. Best For: focused listening during commuting, travel, and busy environments. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 5,500 vs market KSh 7,500 (save about KSh 2,000). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p41", brand: "JBL", name: "Tune 770NC", spec: "Wireless Headphones · ANC · 70hr Battery", grade: "New", price: 9500, market: 13000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["jbl", "headphones", "anc", "new"], description: "Over-ear wireless headphones with legendary JBL Pure Bass sound and effective Noise Cancellation.", longDescription: "Overview: Over-ear wireless headphones with legendary JBL Pure Bass sound and effective Noise Cancellation. Specs: Wireless Headphones · ANC · 70hr Battery. Best For: focused listening during commuting, travel, and busy environments. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 9,500 vs market KSh 13,000 (save about KSh 3,500). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p42", brand: "Sony", name: "WH-CH520", spec: "Wireless Headphones · 50hr Battery", grade: "New", price: 6500, market: 9000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["sony", "headphones", "new"], description: "Affordable Sony wireless headphones with signature clear sound and impressive 50-hour playback.", longDescription: "Overview: Affordable Sony wireless headphones with signature clear sound and impressive 50-hour playback. Specs: Wireless Headphones · 50hr Battery. Best For: extended listening sessions without frequent recharging. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 6,500 vs market KSh 9,000 (save about KSh 2,500). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p43", brand: "Oraimo", name: "FreePods 3", spec: "Wireless Earbuds · 20hr Battery", grade: "New", price: 2800, market: 4000, category: "audio", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=500&fit=crop", tags: ["oraimo", "earbuds", "new"], description: "Entry-level true wireless earbuds offering reliable performance and decent sound quality.", longDescription: "Overview: Entry-level true wireless earbuds offering reliable performance and decent sound quality. Specs: Wireless Earbuds · 20hr Battery. Best For: extended listening sessions without frequent recharging. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 2,800 vs market KSh 4,000 (save about KSh 1,200). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  
-  // Accessories
-  { id: "p44", brand: "Anker", name: "PowerCore 20000", spec: "20000mAh · Dual USB · Fast Charge", grade: "New", price: 4200, market: 6000, category: "accessory", image: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500&h=500&fit=crop", tags: ["anker", "powerbank", "charger", "new"], description: "High-capacity 20000mAh power bank capable of charging phones 5-6 times or laptops multiple times.", longDescription: "Overview: High-capacity 20000mAh power bank capable of charging phones 5-6 times or laptops multiple times. Specs: 20000mAh · Dual USB · Fast Charge. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 4,200 vs market KSh 6,000 (save about KSh 1,800). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p45", brand: "Anker", name: "PowerCore 10000", spec: "10000mAh · Compact · Fast Charge", grade: "New", price: 2800, market: 4000, category: "accessory", image: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500&h=500&fit=crop", tags: ["anker", "powerbank", "charger", "new"], description: "Ultra-compact 10000mAh power bank fitting easily in pockets while providing 2-3 full phone charges.", longDescription: "Overview: Ultra-compact 10000mAh power bank fitting easily in pockets while providing 2-3 full phone charges. Specs: 10000mAh · Compact · Fast Charge. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 2,800 vs market KSh 4,000 (save about KSh 1,200). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p46", brand: "Anker", name: "PowerPort III 65W", spec: "GaN Charger · 3-Port · Fast Charge", grade: "New", price: 4500, market: 6500, category: "accessory", image: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500&h=500&fit=crop", tags: ["anker", "charger", "gan", "new"], description: "Advanced GaN technology charger delivering 65W power in compact form factor smaller than Apple charger.", longDescription: "Overview: Advanced GaN technology charger delivering 65W power in compact form factor smaller than Apple charger. Specs: GaN Charger · 3-Port · Fast Charge. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 4,500 vs market KSh 6,500 (save about KSh 2,000). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p47", brand: "Baseus", name: "100W GaN Charger", spec: "4-Port · PD 3.0 · GaN Technology", grade: "New", price: 5200, market: 7500, category: "accessory", image: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500&h=500&fit=crop", tags: ["baseus", "charger", "gan", "new"], description: "Powerful 100W 4-port GaN charger supporting PD 3.0 fast charging for multiple devices simultaneously.", longDescription: "Overview: Powerful 100W 4-port GaN charger supporting PD 3.0 fast charging for multiple devices simultaneously. Specs: 4-Port · PD 3.0 · GaN Technology. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 5,200 vs market KSh 7,500 (save about KSh 2,300). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p48", brand: "Ugreen", name: "USB-C Cable 2m", spec: "100W · Braided · Fast Charge", grade: "New", price: 800, market: 1200, category: "accessory", image: "https://images.unsplash.com/photo-1559163853-4b378003ac3e?w=500&h=500&fit=crop", tags: ["ugreen", "cable", "usbc", "new"], description: "Premium braided USB-C cable supporting up to 100W power delivery for fast laptop charging.", longDescription: "Overview: Premium braided USB-C cable supporting up to 100W power delivery for fast laptop charging. Specs: 100W · Braided · Fast Charge. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 800 vs market KSh 1,200 (save about KSh 400). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p49", brand: "Anker", name: "USB-C to Lightning", spec: "1.8m · MFi Certified · Fast Charge", grade: "New", price: 1800, market: 2500, category: "accessory", image: "https://images.unsplash.com/photo-1559163853-4b378003ac3e?w=500&h=500&fit=crop", tags: ["anker", "cable", "lightning", "new"], description: "Apple MFi certified USB-C to Lightning cable ensuring full compatibility and fast charging for iPhone/iPad.", longDescription: "Overview: Apple MFi certified USB-C to Lightning cable ensuring full compatibility and fast charging for iPhone/iPad. Specs: 1.8m · MFi Certified · Fast Charge. Best For: faster charging routines and efficient multi-device power management. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 1,800 vs market KSh 2,500 (save about KSh 700). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p50", brand: "Spigen", name: "iPhone 14 Case", spec: "Ultra Hybrid · Clear · Drop Protection", grade: "New", price: 1500, market: 2200, category: "accessory", image: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=500&h=500&fit=crop", tags: ["spigen", "case", "iphone", "new"], description: "Popular Spigen Ultra Hybrid case combining clear back showcasing iPhone design with military-grade drop protection.", longDescription: "Overview: Popular Spigen Ultra Hybrid case combining clear back showcasing iPhone design with military-grade drop protection. Specs: Ultra Hybrid · Clear · Drop Protection. Best For: device protection while keeping daily handling practical and comfortable. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 1,500 vs market KSh 2,200 (save about KSh 700). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p51", brand: "Ringke", name: "Samsung S23 Case", spec: "Fusion · Clear · Military Grade", grade: "New", price: 1400, market: 2000, category: "accessory", image: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=500&h=500&fit=crop", tags: ["ringke", "case", "samsung", "new"], description: "Ringke Fusion case offering military-grade drop protection with crystal-clear back and shock-absorbent bumper.", longDescription: "Overview: Ringke Fusion case offering military-grade drop protection with crystal-clear back and shock-absorbent bumper. Specs: Fusion · Clear · Military Grade. Best For: device protection while keeping daily handling practical and comfortable. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 1,400 vs market KSh 2,000 (save about KSh 600). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p52", brand: "amFilm", name: "Tempered Glass", spec: "Universal · 2-Pack · 9H Hardness", grade: "New", price: 600, market: 1000, category: "accessory", image: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=500&h=500&fit=crop", tags: ["screen protector", "glass", "new"], description: "Premium tempered glass screen protector with 9H hardness rating resisting scratches and impacts.", longDescription: "Overview: Premium tempered glass screen protector with 9H hardness rating resisting scratches and impacts. Specs: Universal · 2-Pack · 9H Hardness. Best For: device protection while keeping daily handling practical and comfortable. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 600 vs market KSh 1,000 (save about KSh 400). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  
-  // Small Electronics
-  { id: "p53", brand: "Xiaomi", name: "Smart Standing Fan", spec: "DC Motor · App Control · 20hr Battery", grade: "New", price: 6500, market: 9000, category: "electronics", image: "https://images.unsplash.com/photo-1584622641295-c3ee44989b18?w=500&h=500&fit=crop", tags: ["xiaomi", "fan", "smart", "new"], description: "Smart pedestal fan with energy-efficient DC motor and app/voice control via Mi Home.", longDescription: "Overview: Smart pedestal fan with energy-efficient DC motor and app/voice control via Mi Home. Specs: DC Motor · App Control · 20hr Battery. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 6,500 vs market KSh 9,000 (save about KSh 2,500). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p54", brand: "Honeywell", name: "Table Fan 12\"", spec: "3-Speed · Oscillating · Quiet", grade: "New", price: 3200, market: 4500, category: "electronics", image: "https://images.unsplash.com/photo-1584622641295-c3ee44989b18?w=500&h=500&fit=crop", tags: ["honeywell", "fan", "new"], description: "Classic 12-inch table fan from trusted Honeywell brand with 3-speed settings and oscillation.", longDescription: "Overview: Classic 12-inch table fan from trusted Honeywell brand with 3-speed settings and oscillation. Specs: 3-Speed · Oscillating · Quiet. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 3,200 vs market KSh 4,500 (save about KSh 1,300). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p55", brand: "Philips", name: "LED Bulb 12W", spec: "Cool White · E27 · 3-Pack", grade: "New", price: 900, market: 1400, category: "electronics", image: "https://images.unsplash.com/photo-1588359348347-c716e76e506f?w=500&h=500&fit=crop", tags: ["philips", "led", "bulb", "new"], description: "Energy-efficient 12W LED bulbs equivalent to 100W incandescent providing bright cool white light.", longDescription: "Overview: Energy-efficient 12W LED bulbs equivalent to 100W incandescent providing bright cool white light. Specs: Cool White · E27 · 3-Pack. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 900 vs market KSh 1,400 (save about KSh 500). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p56", brand: "Xiaomi", name: "LED Smart Bulb", spec: "9W · RGB · App Control · Voice", grade: "New", price: 1800, market: 2800, category: "electronics", tags: ["xiaomi", "led", "bulb", "smart", "new"], description: "Smart RGB LED bulb with 16 million colors controlled via Mi Home app or voice assistants.", longDescription: "Overview: Smart RGB LED bulb with 16 million colors controlled via Mi Home app or voice assistants. Specs: 9W · RGB · App Control · Voice. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 1,800 vs market KSh 2,800 (save about KSh 1,000). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p57", brand: "Sony", name: "Pocket Radio ICF-P26", spec: "AM/FM · Speaker · Compact", grade: "New", price: 2400, market: 3500, category: "electronics", tags: ["sony", "radio", "new"], description: "Compact portable AM/FM radio with built-in speaker and headphone jack for private listening.", longDescription: "Overview: Compact portable AM/FM radio with built-in speaker and headphone jack for private listening. Specs: AM/FM · Speaker · Compact. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 2,400 vs market KSh 3,500 (save about KSh 1,100). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  { id: "p58", brand: "Rebeltec", name: "Bluetooth Speaker", spec: "10W · Waterproof · 8hr Battery", grade: "New", price: 2800, market: 4000, category: "electronics", tags: ["speaker", "bluetooth", "new"], description: "Portable Bluetooth speaker delivering 10W powerful sound with IPX7 waterproof rating for poolside use.", longDescription: "Overview: Portable Bluetooth speaker delivering 10W powerful sound with IPX7 waterproof rating for poolside use. Specs: 10W · Waterproof · 8hr Battery. Best For: dependable day-to-day use. Condition: Brand-new unit verified before listing for readiness and authenticity. Value: KSh 2,800 vs market KSh 4,000 (save about KSh 1,200). Purchase Note: Pre-delivery checks are completed before listing for confidence in everyday use." },
-  
-  // HP ZBook Workstation Series
-  { id: "p59", brand: "HP", name: "ZBook G10", spec: "Core i7 13th Gen · 16GB · 512GB · Workstation", grade: "A", price: 68000, market: 82000, category: "laptop", image: "https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=500&h=500&fit=crop", images: ["https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=800&h=600&fit=crop", "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=800&h=600&fit=crop", "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=800&h=600&fit=crop", "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&h=600&fit=crop"], tags: ["zbook", "hp", "i7", "workstation"], description: "Cutting-edge ZBook mobile workstation with latest 13th Gen Intel Core i7 and professional-grade components.", longDescription: "Overview: Cutting-edge ZBook mobile workstation with latest 13th Gen Intel Core i7 and professional-grade components. Specs: Core i7 13th Gen · 16GB · 512GB · Workstation. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 68,000 vs market KSh 82,000 (save about KSh 14,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p60", brand: "HP", name: "ZBook G10", spec: "Core i7 13th Gen · 16GB · 256GB · Workstation", grade: "A", price: 65000, market: 79000, category: "laptop", image: "https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=500&h=500&fit=crop", tags: ["zbook", "hp", "i7", "workstation"], description: "Professional mobile workstation featuring 13th Gen Core i7 with 16GB RAM for complex engineering and creative tasks.", longDescription: "Overview: Professional mobile workstation featuring 13th Gen Core i7 with 16GB RAM for complex engineering and creative tasks. Specs: Core i7 13th Gen · 16GB · 256GB · Workstation. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 65,000 vs market KSh 79,000 (save about KSh 14,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p61", brand: "HP", name: "ZBook G8 14s", spec: "Core i7 11th Gen · 16GB · 512GB · 4GB GPU", grade: "A", price: 57000, market: 70000, category: "laptop", image: "https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=500&h=500&fit=crop", tags: ["zbook", "hp", "i7", "workstation", "graphics"], description: "Compact workstation with dedicated 4GB professional GPU for CAD, rendering, and video editing workflows.", longDescription: "Overview: Compact workstation with dedicated 4GB professional GPU for CAD, rendering, and video editing workflows. Specs: Core i7 11th Gen · 16GB · 512GB · 4GB GPU. Best For: design tools, content creation, and heavier multitasking workloads. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 57,000 vs market KSh 70,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p62", brand: "HP", name: "ZBook G8 14s", spec: "Core i7 11th Gen · 16GB · 512GB · Workstation", grade: "A", price: 45000, market: 58000, category: "laptop", image: "https://images.unsplash.com/photo-1603302576837-37561b2e2302?w=500&h=500&fit=crop", tags: ["zbook", "hp", "i7", "workstation"], description: "ZBook workstation-class build quality and reliability with Core i7 and 16GB RAM for professional workflows.", longDescription: "Overview: ZBook workstation-class build quality and reliability with Core i7 and 16GB RAM for professional workflows. Specs: Core i7 11th Gen · 16GB · 512GB · Workstation. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 45,000 vs market KSh 58,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p63", brand: "HP", name: "Elitebook 1040 G10", spec: "Core i7 13th Gen · 16GB · 512GB", grade: "A", price: 65000, market: 78000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "Flagship Elitebook 1040 with cutting-edge 13th Gen Core i7 and premium build quality.", longDescription: "Overview: Flagship Elitebook 1040 with cutting-edge 13th Gen Core i7 and premium build quality. Specs: Core i7 13th Gen · 16GB · 512GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 65,000 vs market KSh 78,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p64", brand: "HP", name: "Elitebook 1040 G10", spec: "Core i7 13th Gen · 16GB · 256GB", grade: "A", price: 63000, market: 76000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "Latest-gen Elitebook combining 13th Gen performance with elegant design and all-day battery.", longDescription: "Overview: Latest-gen Elitebook combining 13th Gen performance with elegant design and all-day battery. Specs: Core i7 13th Gen · 16GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 63,000 vs market KSh 76,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // Dell Precision & Latitude Series
-  { id: "p65", brand: "Dell", name: "Precision 7560", spec: "Core i7 11th Gen · 16GB · 512GB · RTX 3000 6GB", grade: "A", price: 69000, market: 85000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "precision", "gaming", "i7", "rtx"], description: "Powerful mobile workstation with NVIDIA RTX 3000 6GB GPU perfect for 3D rendering, video editing, and AI workloads.", longDescription: "Overview: Powerful mobile workstation with NVIDIA RTX 3000 6GB GPU perfect for 3D rendering, video editing, and AI workloads. Specs: Core i7 11th Gen · 16GB · 512GB · RTX 3000 6GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 69,000 vs market KSh 85,000 (save about KSh 16,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p66", brand: "Dell", name: "Latitude 7410", spec: "Core i7 10th Gen · 16GB · 512GB", grade: "A", price: 34000, market: 44000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i7"], description: "Solid business laptop with 10th Gen Core i7 and ample 16GB RAM for smooth productivity.", longDescription: "Overview: Solid business laptop with 10th Gen Core i7 and ample 16GB RAM for smooth productivity. Specs: Core i7 10th Gen · 16GB · 512GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 34,000 vs market KSh 44,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p67", brand: "Dell", name: "Latitude 5320", spec: "Core i5 11th Gen · 8GB · 256GB", grade: "A", price: 24500, market: 32000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Compact business laptop with modern 11th Gen Core i5 delivering efficient performance.", longDescription: "Overview: Compact business laptop with modern 11th Gen Core i5 delivering efficient performance. Specs: Core i5 11th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 24,500 vs market KSh 32,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p68", brand: "Dell", name: "Latitude 5410", spec: "Core i5 10th Gen · 8GB · 256GB", grade: "A", price: 23500, market: 31000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Reliable workhorse laptop with 10th Gen Core i5 perfect for everyday business tasks.", longDescription: "Overview: Reliable workhorse laptop with 10th Gen Core i5 perfect for everyday business tasks. Specs: Core i5 10th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 23,500 vs market KSh 31,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p69", brand: "Dell", name: "Latitude 5410", spec: "Core i5 10th Gen · 8GB · 256GB · Touch", grade: "A", price: 24500, market: 32000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5", "touch"], description: "Touchscreen-equipped business laptop adding intuitive interaction to solid Core i5 performance.", longDescription: "Overview: Touchscreen-equipped business laptop adding intuitive interaction to solid Core i5 performance. Specs: Core i5 10th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 24,500 vs market KSh 32,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p70", brand: "Dell", name: "Latitude 7280", spec: "Core i7 7th Gen · 8GB · 256GB", grade: "B", price: 19500, market: 26000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i7"], description: "Compact 12-inch ultraportable with Core i7 7th Gen offering solid performance in pocket-friendly size.", longDescription: "Overview: Compact 12-inch ultraportable with Core i7 7th Gen offering solid performance in pocket-friendly size. Specs: Core i7 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 19,500 vs market KSh 26,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p71", brand: "Dell", name: "Latitude 7280", spec: "Core i7 6th Gen · 8GB · 256GB", grade: "B", price: 18500, market: 25000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i7"], description: "Affordable ultra-compact laptop with Core i7 processing power in 12-inch form factor.", longDescription: "Overview: Affordable ultra-compact laptop with Core i7 processing power in 12-inch form factor. Specs: Core i7 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 18,500 vs market KSh 25,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p72", brand: "Dell", name: "Latitude 7280", spec: "Core i5 7th Gen · 8GB · 256GB", grade: "B", price: 17000, market: 23000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Budget-friendly 12-inch laptop with Core i5 7th Gen suitable for students and basic office work.", longDescription: "Overview: Budget-friendly 12-inch laptop with Core i5 7th Gen suitable for students and basic office work. Specs: Core i5 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 17,000 vs market KSh 23,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p73", brand: "Dell", name: "Latitude 7280", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 16000, market: 22000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Entry-level business laptop offering Core i5 performance and SSD speed at rock-bottom pricing.", longDescription: "Overview: Entry-level business laptop offering Core i5 performance and SSD speed at rock-bottom pricing. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 16,000 vs market KSh 22,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p74", brand: "Dell", name: "Latitude 7490", spec: "Core i5 8th Gen · 8GB · 256GB · Touch", grade: "A", price: 22000, market: 29000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5", "touch"], description: "14-inch business laptop with responsive touchscreen and efficient Core i5 8th Gen processor.", longDescription: "Overview: 14-inch business laptop with responsive touchscreen and efficient Core i5 8th Gen processor. Specs: Core i5 8th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 22,000 vs market KSh 29,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p75", brand: "Dell", name: "Latitude 5490", spec: "Core i5 8th Gen · 8GB · 256GB", grade: "A", price: 21000, market: 28000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Dependable 14-inch business laptop with Core i5 8th Gen delivering smooth Windows 11 performance.", longDescription: "Overview: Dependable 14-inch business laptop with Core i5 8th Gen delivering smooth Windows 11 performance. Specs: Core i5 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 21,000 vs market KSh 28,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p76", brand: "Dell", name: "Latitude 7300", spec: "Core i5 8th Gen · 16GB · 256GB · Touch", grade: "A", price: 23000, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5", "touch"], description: "Enhanced configuration with 16GB RAM enabling smoother multitasking and future-proofing.", longDescription: "Overview: Enhanced configuration with 16GB RAM enabling smoother multitasking and future-proofing. Specs: Core i5 8th Gen · 16GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 23,000 vs market KSh 30,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p77", brand: "Dell", name: "Latitude 7300", spec: "Core i5 8th Gen · 8GB · 256GB", grade: "A", price: 21000, market: 28000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Compact 13-inch business ultraportable with Core i5 8th Gen ideal for mobile professionals.", longDescription: "Overview: Compact 13-inch business ultraportable with Core i5 8th Gen ideal for mobile professionals. Specs: Core i5 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 21,000 vs market KSh 28,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p78", brand: "Dell", name: "Latitude 5300 X360", spec: "Core i5 8th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 24000, market: 31000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5", "touch", "360"], description: "Versatile 2-in-1 convertible with 360-degree hinge transforming from laptop to tablet mode.", longDescription: "Overview: Versatile 2-in-1 convertible with 360-degree hinge transforming from laptop to tablet mode. Specs: Core i5 8th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 24,000 vs market KSh 31,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p79", brand: "Dell", name: "Latitude 7390 X360", spec: "Core i5 8th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 24000, market: 31000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5", "touch", "360"], description: "Premium 7000-series convertible offering superior build quality with 360-degree versatility.", longDescription: "Overview: Premium 7000-series convertible offering superior build quality with 360-degree versatility. Specs: Core i5 8th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 24,000 vs market KSh 31,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p80", brand: "Dell", name: "Latitude 7270", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 14000, market: 20000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Ultra-portable 12-inch laptop with Core i5 6th Gen perfect for basic computing needs.", longDescription: "Overview: Ultra-portable 12-inch laptop with Core i5 6th Gen perfect for basic computing needs. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 14,000 vs market KSh 20,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p81", brand: "Dell", name: "XPS 9350", spec: "Core i5 6th Gen · 8GB · 256GB · Touch", grade: "A", price: 19000, market: 26000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "xps", "i5", "touch"], description: "Premium XPS series featuring stunning InfinityEdge display with minimal bezels and touchscreen.", longDescription: "Overview: Premium XPS series featuring stunning InfinityEdge display with minimal bezels and touchscreen. Specs: Core i5 6th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 19,000 vs market KSh 26,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p82", brand: "Dell", name: "Latitude 7250", spec: "Core i7 5th Gen · 8GB · 256GB", grade: "B", price: 14000, market: 20000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i7"], description: "Compact 12-inch laptop with Core i7 processor delivering better performance than typical budget options.", longDescription: "Overview: Compact 12-inch laptop with Core i7 processor delivering better performance than typical budget options. Specs: Core i7 5th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 14,000 vs market KSh 20,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p83", brand: "Dell", name: "Latitude 7250", spec: "Core i5 5th Gen · 8GB · 256GB", grade: "B", price: 13000, market: 19000, category: "laptop", image: "https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=500&h=500&fit=crop", tags: ["dell", "latitude", "i5"], description: "Affordable ultra-compact business laptop with Core i5 and SSD ensuring responsive everyday use.", longDescription: "Overview: Affordable ultra-compact business laptop with Core i5 and SSD ensuring responsive everyday use. Specs: Core i5 5th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 13,000 vs market KSh 19,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // MacBook Pro Series
-  { id: "p84", brand: "Apple", name: "MacBook Pro 13\" 2020", spec: "Core i7 · 32GB · 512GB · Touch Bar", grade: "A", price: 61000, market: 75000, category: "laptop", image: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=500&fit=crop", tags: ["macbook", "apple", "i7", "touchbar"], description: "Powerful MacBook Pro with exceptional 32GB RAM for intensive creative workflows and virtualization.", longDescription: "Overview: Powerful MacBook Pro with exceptional 32GB RAM for intensive creative workflows and virtualization. Specs: Core i7 · 32GB · 512GB · Touch Bar. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 61,000 vs market KSh 75,000 (save about KSh 14,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p85", brand: "Apple", name: "MacBook Pro 13\" 2019", spec: "Core i7 · 16GB · 256GB · Touch Bar", grade: "A", price: 44000, market: 56000, category: "laptop", image: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=500&fit=crop", tags: ["macbook", "apple", "i7", "touchbar"], description: "Classic MacBook Pro with Core i7 and Touch Bar delivering smooth macOS experience.", longDescription: "Overview: Classic MacBook Pro with Core i7 and Touch Bar delivering smooth macOS experience. Specs: Core i7 · 16GB · 256GB · Touch Bar. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 44,000 vs market KSh 56,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p86", brand: "Apple", name: "MacBook Pro 13\" 2018", spec: "Core i7 · 16GB · 256GB · Touch Bar", grade: "A", price: 44000, market: 56000, category: "laptop", image: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=500&fit=crop", tags: ["macbook", "apple", "i7", "touchbar"], description: "Reliable 2018 MacBook Pro with Core i7 and 16GB RAM handling professional applications smoothly.", longDescription: "Overview: Reliable 2018 MacBook Pro with Core i7 and 16GB RAM handling professional applications smoothly. Specs: Core i7 · 16GB · 256GB · Touch Bar. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 44,000 vs market KSh 56,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p87", brand: "Apple", name: "MacBook Air 13\" 2015", spec: "Core i5 · 8GB · 256GB", grade: "B", price: 21000, market: 29000, category: "laptop", image: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=500&fit=crop", tags: ["macbook", "apple", "i5", "air"], description: "Affordable entry into macOS ecosystem with legendary MacBook Air reliability and all-day battery.", longDescription: "Overview: Affordable entry into macOS ecosystem with legendary MacBook Air reliability and all-day battery. Specs: Core i5 · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 21,000 vs market KSh 29,000 (save about KSh 8,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p88", brand: "Apple", name: "MacBook Air 13\" 2015", spec: "Core i5 · 8GB · 128GB", grade: "B", price: 17500, market: 25000, category: "laptop", image: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=500&fit=crop", tags: ["macbook", "apple", "i5", "air"], description: "Classic MacBook Air offering iconic design and macOS experience at very accessible price.", longDescription: "Overview: Classic MacBook Air offering iconic design and macOS experience at very accessible price. Specs: Core i5 · 8GB · 128GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 17,500 vs market KSh 25,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // Additional HP Elitebooks
-  { id: "p89", brand: "HP", name: "Elitebook 1040 G8 X360", spec: "Core i7 11th Gen · 32GB · 512GB · Touch · 360°", grade: "A", price: 59000, market: 72000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch", "360"], description: "Flagship 2-in-1 Elitebook with massive 32GB RAM for power users and maximum multitasking.", longDescription: "Overview: Flagship 2-in-1 Elitebook with massive 32GB RAM for power users and maximum multitasking. Specs: Core i7 11th Gen · 32GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 59,000 vs market KSh 72,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p90", brand: "HP", name: "Elitebook 1040 G8 X360", spec: "Core i7 11th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 57000, market: 70000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch", "360"], description: "Premium convertible combining Core i7 11th Gen power with flexible 360-degree design.", longDescription: "Overview: Premium convertible combining Core i7 11th Gen power with flexible 360-degree design. Specs: Core i7 11th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 57,000 vs market KSh 70,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p91", brand: "HP", name: "Elitebook 1040 G7 X360", spec: "Core i7 10th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 42000, market: 54000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch", "360"], description: "Previous-gen flagship convertible still delivering excellent performance with 10th Gen Core i7.", longDescription: "Overview: Previous-gen flagship convertible still delivering excellent performance with 10th Gen Core i7. Specs: Core i7 10th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 42,000 vs market KSh 54,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p92", brand: "HP", name: "Elitebook Dragonfly X360", spec: "Core i7 11th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 58000, market: 71000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "dragonfly", "hp", "i7", "touch", "360"], description: "Ultra-premium Dragonfly edition featuring magnesium chassis weighing under 1kg without sacrificing performance.", longDescription: "Overview: Ultra-premium Dragonfly edition featuring magnesium chassis weighing under 1kg without sacrificing performance. Specs: Core i7 11th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 58,000 vs market KSh 71,000 (save about KSh 13,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p93", brand: "HP", name: "Elitebook Dragonfly X360", spec: "Core i7 8th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 46000, market: 58000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "dragonfly", "hp", "i7", "touch", "360"], description: "Special edition Dragonfly with distinctive design and ultra-lightweight construction.", longDescription: "Overview: Special edition Dragonfly with distinctive design and ultra-lightweight construction. Specs: Core i7 8th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 46,000 vs market KSh 58,000 (save about KSh 12,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p94", brand: "HP", name: "Elitebook Dragonfly X360", spec: "Core i5 8th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 34000, market: 44000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "dragonfly", "hp", "i5", "touch", "360"], description: "Accessible entry into Dragonfly lineup with Core i5 and convertible touchscreen design.", longDescription: "Overview: Accessible entry into Dragonfly lineup with Core i5 and convertible touchscreen design. Specs: Core i5 8th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 34,000 vs market KSh 44,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p95", brand: "HP", name: "Elitebook 840 G5", spec: "Core i7 8th Gen · 16GB · 512GB · Touch", grade: "A", price: 35000, market: 45000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch"], description: "Well-equipped Elitebook with Core i7 8th Gen, ample 16GB RAM, and spacious 512GB storage.", longDescription: "Overview: Well-equipped Elitebook with Core i7 8th Gen, ample 16GB RAM, and spacious 512GB storage. Specs: Core i7 8th Gen · 16GB · 512GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 35,000 vs market KSh 45,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p96", brand: "HP", name: "Elitebook 840 G5", spec: "Core i7 8th Gen · 8GB · 256GB", grade: "A", price: 28500, market: 37000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "Balanced configuration with Core i7 power at affordable price point.", longDescription: "Overview: Balanced configuration with Core i7 power at affordable price point. Specs: Core i7 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 28,500 vs market KSh 37,000 (save about KSh 8,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p97", brand: "HP", name: "Elitebook 840 G5", spec: "Core i5 8th Gen · 8GB · 256GB · Touch", grade: "A", price: 27000, market: 35000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch"], description: "Touchscreen business laptop with Core i5 8th Gen delivering smooth everyday performance.", longDescription: "Overview: Touchscreen business laptop with Core i5 8th Gen delivering smooth everyday performance. Specs: Core i5 8th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 27,000 vs market KSh 35,000 (save about KSh 8,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p98", brand: "HP", name: "Elitebook 840 G5", spec: "Core i5 8th Gen · 8GB · 256GB", grade: "A", price: 24000, market: 32000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Standard Elitebook configuration offering reliable Core i5 performance for business productivity.", longDescription: "Overview: Standard Elitebook configuration offering reliable Core i5 performance for business productivity. Specs: Core i5 8th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 24,000 vs market KSh 32,000 (save about KSh 8,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p99", brand: "HP", name: "Elitebook 840 G4", spec: "Core i7 7th Gen · 8GB · 256GB", grade: "B", price: 23000, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "Budget-friendly Elitebook with Core i7 7th Gen still offering solid performance.", longDescription: "Overview: Budget-friendly Elitebook with Core i7 7th Gen still offering solid performance. Specs: Core i7 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 23,000 vs market KSh 30,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p100", brand: "HP", name: "Elitebook 840 G4", spec: "Core i5 7th Gen · 8GB · 256GB · Touch", grade: "B", price: 20500, market: 27000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch"], description: "Affordable touchscreen business laptop with Core i5 and SSD responsiveness.", longDescription: "Overview: Affordable touchscreen business laptop with Core i5 and SSD responsiveness. Specs: Core i5 7th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 20,500 vs market KSh 27,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p101", brand: "HP", name: "Elitebook 840 G4", spec: "Core i5 7th Gen · 8GB · 256GB", grade: "B", price: 19000, market: 26000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Entry-level Elitebook maintaining brand quality at very accessible price.", longDescription: "Overview: Entry-level Elitebook maintaining brand quality at very accessible price. Specs: Core i5 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 19,000 vs market KSh 26,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p102", brand: "HP", name: "Elitebook 840 G3", spec: "Core i7 6th Gen · 8GB · 256GB · Touch", grade: "B", price: 23500, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch"], description: "Touchscreen Elitebook with Core i7 processor offering enhanced performance at budget pricing.", longDescription: "Overview: Touchscreen Elitebook with Core i7 processor offering enhanced performance at budget pricing. Specs: Core i7 6th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 23,500 vs market KSh 30,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p103", brand: "HP", name: "Elitebook 840 G3", spec: "Core i7 6th Gen · 8GB · 256GB", grade: "B", price: 21000, market: 28000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7"], description: "Core i7-powered business laptop offering better performance than typical budget options.", longDescription: "Overview: Core i7-powered business laptop offering better performance than typical budget options. Specs: Core i7 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 21,000 vs market KSh 28,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p104", brand: "HP", name: "Elitebook 840 G3", spec: "Core i5 6th Gen · 8GB · 256GB · Touch", grade: "B", price: 20000, market: 27000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch"], description: "Budget touchscreen laptop with Core i5 and Elitebook build quality.", longDescription: "Overview: Budget touchscreen laptop with Core i5 and Elitebook build quality. Specs: Core i5 6th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 20,000 vs market KSh 27,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p105", brand: "HP", name: "Elitebook 840 G3", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 18500, market: 25000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Affordable business laptop with Core i5 and fast SSD ensuring responsive daily use.", longDescription: "Overview: Affordable business laptop with Core i5 and fast SSD ensuring responsive daily use. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 18,500 vs market KSh 25,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p106", brand: "HP", name: "Elitebook 820 G4", spec: "Core i5 7th Gen · 8GB · 256GB", grade: "B", price: 18500, market: 25000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Compact 12-inch Elitebook perfect for mobile professionals prioritizing portability.", longDescription: "Overview: Compact 12-inch Elitebook perfect for mobile professionals prioritizing portability. Specs: Core i5 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 18,500 vs market KSh 25,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p107", brand: "HP", name: "Elitebook 820 G3", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 17500, market: 24000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5"], description: "Budget-friendly 12-inch laptop with Core i5 and SSD in ultra-portable form.", longDescription: "Overview: Budget-friendly 12-inch laptop with Core i5 and SSD in ultra-portable form. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 17,500 vs market KSh 24,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p108", brand: "HP", name: "Elitebook 1030 G2 X360", spec: "Core i7 7th Gen · 16GB · 512GB · Touch · 360°", grade: "A", price: 34000, market: 44000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch", "360"], description: "Premium convertible with Core i7 and generous 16GB RAM in elegant 2-in-1 design.", longDescription: "Overview: Premium convertible with Core i7 and generous 16GB RAM in elegant 2-in-1 design. Specs: Core i7 7th Gen · 16GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 34,000 vs market KSh 44,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p109", brand: "HP", name: "Elitebook 1030 G2 X360", spec: "Core i7 7th Gen · 8GB · 512GB · Touch · 360°", grade: "A", price: 35000, market: 45000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i7", "touch", "360"], description: "Convertible Elitebook with Core i7 and spacious 512GB storage in flexible 360-degree chassis.", longDescription: "Overview: Convertible Elitebook with Core i7 and spacious 512GB storage in flexible 360-degree chassis. Specs: Core i7 7th Gen · 8GB · 512GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 35,000 vs market KSh 45,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p110", brand: "HP", name: "Elitebook 1030 G2 X360", spec: "Core i5 7th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 29000, market: 38000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["elitebook", "hp", "i5", "touch", "360"], description: "Affordable convertible with Core i5 and touchscreen in premium Elitebook chassis.", longDescription: "Overview: Affordable convertible with Core i5 and touchscreen in premium Elitebook chassis. Specs: Core i5 7th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 29,000 vs market KSh 38,000 (save about KSh 9,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // HP Probook Series
-  { id: "p111", brand: "HP", name: "Probook 640 G8", spec: "Core i5 11th Gen · 16GB · 256GB", grade: "A", price: 32000, market: 42000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["probook", "hp", "i5"], description: "Modern Probook with 11th Gen Core i5 and enhanced 16GB RAM for efficient multitasking.", longDescription: "Overview: Modern Probook with 11th Gen Core i5 and enhanced 16GB RAM for efficient multitasking. Specs: Core i5 11th Gen · 16GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 32,000 vs market KSh 42,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p112", brand: "HP", name: "Probook 430 G7", spec: "Core i7 10th Gen · 8GB · 256GB", grade: "A", price: 32000, market: 42000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["probook", "hp", "i7"], description: "Compact Probook with Core i7 10th Gen delivering strong performance in portable package.", longDescription: "Overview: Compact Probook with Core i7 10th Gen delivering strong performance in portable package. Specs: Core i7 10th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 32,000 vs market KSh 42,000 (save about KSh 10,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p113", brand: "HP", name: "Probook 640 G5", spec: "Core i5 7th Gen · 8GB · 256GB", grade: "B", price: 20000, market: 27000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["probook", "hp", "i5"], description: "Budget business laptop with Core i5 7th Gen and SSD speed for everyday tasks.", longDescription: "Overview: Budget business laptop with Core i5 7th Gen and SSD speed for everyday tasks. Specs: Core i5 7th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 20,000 vs market KSh 27,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p114", brand: "HP", name: "Probook 430 G3", spec: "Core i5 6th Gen · 8GB · 256GB · Touch", grade: "B", price: 17000, market: 23000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["probook", "hp", "i5", "touch"], description: "Affordable touchscreen laptop with Core i5 and SSD in compact form.", longDescription: "Overview: Affordable touchscreen laptop with Core i5 and SSD in compact form. Specs: Core i5 6th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 17,000 vs market KSh 23,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p115", brand: "HP", name: "Probook 430 G3", spec: "Core i5 6th Gen · 8GB · 256GB", grade: "B", price: 15500, market: 22000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["probook", "hp", "i5"], description: "Entry-level business laptop with Core i5 and fast SSD at rock-bottom pricing.", longDescription: "Overview: Entry-level business laptop with Core i5 and fast SSD at rock-bottom pricing. Specs: Core i5 6th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 15,500 vs market KSh 22,000 (save about KSh 6,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  
-  // Additional Lenovo Models
-  { id: "p116", brand: "Lenovo", name: "Yoga 380", spec: "Core i5 8th Gen · 8GB · 256GB · Touch · 360°", grade: "A", price: 22500, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i5", "touch", "360"], description: "Compact convertible Yoga with Core i5 8th Gen and flexible 360-degree hinge.", longDescription: "Overview: Compact convertible Yoga with Core i5 8th Gen and flexible 360-degree hinge. Specs: Core i5 8th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade A: clean cosmetics with strong overall presentation after testing. Value: KSh 22,500 vs market KSh 30,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p117", brand: "Lenovo", name: "Yoga 370", spec: "Core i7 7th Gen · 8GB · 256GB · Touch · 360°", grade: "B", price: 22500, market: 30000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i7", "touch", "360"], description: "Core i7-powered convertible with 360-degree flexibility and touchscreen.", longDescription: "Overview: Core i7-powered convertible with 360-degree flexibility and touchscreen. Specs: Core i7 7th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 22,500 vs market KSh 30,000 (save about KSh 7,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p118", brand: "Lenovo", name: "Yoga 370", spec: "Core i5 7th Gen · 8GB · 256GB · Touch · 360°", grade: "B", price: 21000, market: 28000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i5", "touch", "360"], description: "Affordable 2-in-1 convertible with Core i5 and touchscreen in tested Grade B condition.", longDescription: "Overview: Affordable 2-in-1 convertible with Core i5 and touchscreen in tested Grade B condition. Specs: Core i5 7th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 21,000 vs market KSh 28,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p119", brand: "Lenovo", name: "Yoga 260", spec: "Core i7 6th Gen · 8GB · 256GB · Touch · 360°", grade: "B", price: 20000, market: 27000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["yoga", "lenovo", "i7", "touch", "360"], description: "Budget convertible with Core i7 processor offering enhanced performance in 2-in-1 form.", longDescription: "Overview: Budget convertible with Core i7 processor offering enhanced performance in 2-in-1 form. Specs: Core i7 6th Gen · 8GB · 256GB · Touch · 360°. Best For: presentations, note-taking, hybrid work, and flexible laptop-to-tablet use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 20,000 vs market KSh 27,000 (save about KSh 7,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p120", brand: "Lenovo", name: "X270", spec: "Core i5 6th Gen · 8GB · 256GB · Touch", grade: "B", price: 16000, market: 22000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["lenovo", "i5", "touch"], description: "Ultra-portable 12-inch ThinkPad with touchscreen and legendary keyboard.", longDescription: "Overview: Ultra-portable 12-inch ThinkPad with touchscreen and legendary keyboard. Specs: Core i5 6th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 16,000 vs market KSh 22,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p121", brand: "Lenovo", name: "X250", spec: "Core i5 5th Gen · 8GB · 256GB · Touch", grade: "B", price: 13500, market: 19000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["lenovo", "i5", "touch"], description: "Entry-level ThinkPad with touchscreen and SSD offering responsive basic computing.", longDescription: "Overview: Entry-level ThinkPad with touchscreen and SSD offering responsive basic computing. Specs: Core i5 5th Gen · 8GB · 256GB · Touch. Best For: interactive workflows, visual review tasks, and day-to-day productivity. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 13,500 vs market KSh 19,000 (save about KSh 5,500). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-  { id: "p122", brand: "Lenovo", name: "X240", spec: "Core i7 4th Gen · 8GB · 256GB", grade: "B", price: 13000, market: 19000, category: "laptop", image: "https://images.unsplash.com/photo-1588872657360-3a85f2e3fa34?w=500&h=500&fit=crop", tags: ["lenovo", "i7"], description: "Budget ultra-portable with Core i7 processor offering better performance than typical entry-level options.", longDescription: "Overview: Budget ultra-portable with Core i7 processor offering better performance than typical entry-level options. Specs: Core i7 4th Gen · 8GB · 256GB. Best For: office productivity, school tasks, remote work, and reliable daily use. Condition: Grade B: light cosmetic wear may be visible, but functionality is fully tested. Value: KSh 13,000 vs market KSh 19,000 (save about KSh 6,000). Purchase Note: Return support is available if delivered condition differs from approved photos." },
-];
+const PROFILES_KEY = "nafuu-profiles";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const CATEGORIES = [
   { key: "all", label: "All Products" },
@@ -181,7 +41,7 @@ const CATEGORY_MENU = [
     key: "laptop", 
     label: "Laptops", 
     desc: "Ex-UK refurbished & brand new",
-    icon: "💻",
+    icon: "LAP",
     color: "#e8f8ed",
     count: () => PRODUCTS.filter(p => p.category === "laptop").length
   },
@@ -189,7 +49,7 @@ const CATEGORY_MENU = [
     key: "phone", 
     label: "Phones", 
     desc: "Smartphones from trusted brands",
-    icon: "📱",
+    icon: "PHN",
     color: "#f0f7ff",
     count: () => PRODUCTS.filter(p => p.category === "phone").length
   },
@@ -197,7 +57,7 @@ const CATEGORY_MENU = [
     key: "audio", 
     label: "Audio", 
     desc: "Earbuds, headphones & speakers",
-    icon: "🎧",
+    icon: "AUD",
     color: "#fef3f2",
     count: () => PRODUCTS.filter(p => p.category === "audio").length
   },
@@ -205,7 +65,7 @@ const CATEGORY_MENU = [
     key: "accessory", 
     label: "Accessories", 
     desc: "Chargers, cables & protection",
-    icon: "🔌",
+    icon: "ACC",
     color: "#fef9e8",
     count: () => PRODUCTS.filter(p => p.category === "accessory").length
   },
@@ -213,7 +73,7 @@ const CATEGORY_MENU = [
     key: "electronics", 
     label: "Electronics", 
     desc: "Fans, bulbs & home essentials",
-    icon: "⚡",
+    icon: "ELE",
     color: "#f5f3ff",
     count: () => PRODUCTS.filter(p => p.category === "electronics").length
   },
@@ -285,12 +145,109 @@ const getStockMeta = (status = "in_stock") => {
 
 const isAvailable = (product) => (product?.stockStatus || "in_stock") !== "out_of_stock";
 
+const createDefaultAddress = (user = {}) => ({
+  id: `addr-${Date.now()}`,
+  label: "Home",
+  recipientName: user?.name || "",
+  phone: "",
+  county: "Mombasa",
+  town: "",
+  addressLine: "",
+  landmark: "",
+});
+
+const createProfileTemplate = (user = {}) => {
+  const defaultAddress = createDefaultAddress(user);
+  return {
+    fullName: user?.name || "",
+    email: user?.email || "",
+    phone: "",
+    altPhone: "",
+    profilePicture: "",
+    bio: "",
+    county: defaultAddress.county,
+    town: defaultAddress.town,
+    addressLine: defaultAddress.addressLine,
+    landmark: defaultAddress.landmark,
+    preferredContact: "whatsapp",
+    notifyEmail: true,
+    notifySms: true,
+    notifyDeals: false,
+    mpesaPhone: "",
+    mpesaName: user?.name || "",
+    mpesaDefault: true,
+    cards: [],
+    defaultCardId: "",
+    addresses: [defaultAddress],
+    defaultAddressId: defaultAddress.id,
+  };
+};
+
+const normalizeProfileData = (data = {}, user = {}) => {
+  const base = createProfileTemplate(user);
+  const legacyAddress = {
+    ...createDefaultAddress(user),
+    label: "Home",
+    recipientName: data.fullName || user?.name || "",
+    phone: data.phone || "",
+    county: data.county || "Mombasa",
+    town: data.town || "",
+    addressLine: data.addressLine || "",
+    landmark: data.landmark || "",
+  };
+
+  const addresses = Array.isArray(data.addresses) && data.addresses.length > 0
+    ? data.addresses.map((address, index) => ({
+        ...createDefaultAddress(user),
+        ...address,
+        id: address?.id || `addr-${Date.now()}-${index}`,
+      }))
+    : [legacyAddress];
+
+  const defaultAddressId = addresses.some((address) => address.id === data.defaultAddressId)
+    ? data.defaultAddressId
+    : addresses[0]?.id || "";
+  const defaultAddress = addresses.find((address) => address.id === defaultAddressId) || addresses[0] || legacyAddress;
+
+  return {
+    ...base,
+    ...data,
+    email: user?.email || data.email || "",
+    fullName: data.fullName || user?.name || "",
+    mpesaName: data.mpesaName || user?.name || "",
+    cards: Array.isArray(data.cards) ? data.cards : [],
+    addresses,
+    defaultAddressId,
+    county: defaultAddress.county || "Mombasa",
+    town: defaultAddress.town || "",
+    addressLine: defaultAddress.addressLine || "",
+    landmark: defaultAddress.landmark || "",
+  };
+};
+
+const detectCardBrand = (rawNumber = "") => {
+  const number = String(rawNumber).replace(/\D/g, "");
+  if (/^4/.test(number)) return "Visa";
+  if (/^(5[1-5]|2[2-7])/.test(number)) return "Mastercard";
+  if (/^(34|37)/.test(number)) return "American Express";
+  if (/^(6011|65)/.test(number)) return "Discover";
+  return "Card";
+};
+
+const sanitizeArray = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === "object") : []);
+
 export default function App() {
+  const forcedClerkMode = (import.meta.env.VITE_AUTH_MODE || "auto").toLowerCase() === "clerk";
+  const clerkConfigured = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+  const clerkModeMisconfigured = forcedClerkMode && !clerkConfigured;
+
   const [page, setPage] = useState("home");
   const [search, setSearch] = useState("");
   const [navSearch, setNavSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [brandSubdivision, setBrandSubdivision] = useState("all");
+  const [modelSubdivision, setModelSubdivision] = useState("all");
   const [sortBy, setSortBy] = useState("featured");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [priceBand, setPriceBand] = useState("all");
@@ -301,7 +258,6 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState({ name: "", phone: "", location: "", notes: "" });
   const [paymentMethod, setPaymentMethod] = useState("mpesa");
-  const [pesapalOrderTracking, setPesapalOrderTracking] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [paying, setPaying] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
@@ -314,10 +270,7 @@ export default function App() {
   const [newsletterMsg, setNewsletterMsg] = useState("");
   const [infoPage, setInfoPage] = useState(null);
   const [authMode, setAuthMode] = useState("signin");
-  const [authPanel, setAuthPanel] = useState("form");
-  const [authStep, setAuthStep] = useState("email");
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
-  const [resetForm, setResetForm] = useState({ password: "", confirmPassword: "" });
   
   // Nice to Have Feature States
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -328,16 +281,60 @@ export default function App() {
   const [compareList, setCompareList] = useState([]);
   const [stockAlerts, setStockAlerts] = useState([]);
   const [adminStats, setAdminStats] = useState(null);
-  const [recoveryEmail, setRecoveryEmail] = useState("");
-  const [verificationEmail, setVerificationEmail] = useState("");
+  const [seoDashboard, setSeoDashboard] = useState(null);
+  const [seoTasks, setSeoTasks] = useState([]);
+  const [seoLoading, setSeoLoading] = useState(false);
+  const [seoError, setSeoError] = useState("");
+  const [showSeoPanel, setShowSeoPanel] = useState(false);
+  const [showBlogAdminPanel, setShowBlogAdminPanel] = useState(false);
+  const [blogAdminLoading, setBlogAdminLoading] = useState(false);
+  const [blogAdminError, setBlogAdminError] = useState("");
+  const [blogAdminItems, setBlogAdminItems] = useState([]);
+  const [blogAdminEditingId, setBlogAdminEditingId] = useState("");
+  const [blogAdminDraft, setBlogAdminDraft] = useState({
+    title: "",
+    slug: "",
+    excerpt: "",
+    content: "",
+    focusKeyword: "",
+    metaTitle: "",
+    metaDescription: "",
+    publishedAt: "",
+    status: "draft",
+  });
+  const [seoTaskDraft, setSeoTaskDraft] = useState({
+    title: "",
+    actionType: "content_task",
+    sourceType: "local",
+    sourceRef: "",
+    dueAt: "",
+    notes: "",
+    priority: "medium",
+  });
+  const [blogPosts, setBlogPosts] = useState([]);
+  const [blogLoading, setBlogLoading] = useState(false);
+  const [blogError, setBlogError] = useState("");
+  const [selectedBlogPost, setSelectedBlogPost] = useState(null);
+  const [selectedBlogSlug, setSelectedBlogSlug] = useState("");
   const [authErrors, setAuthErrors] = useState({});
   const [authMsg, setAuthMsg] = useState("");
+  const [authPending, setAuthPending] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [profileData, setProfileData] = useState(createProfileTemplate());
+  const [profileMsg, setProfileMsg] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [cardDraft, setCardDraft] = useState({ holder: "", number: "", expMonth: "", expYear: "" });
+  const [addressDraft, setAddressDraft] = useState(createDefaultAddress());
   const [cart, setCart] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [catalog, setCatalog] = useState(PRODUCTS);
   const [adminEditId, setAdminEditId] = useState(null);
   const [adminMsg, setAdminMsg] = useState("");
+  const [bulkPreview, setBulkPreview] = useState(null); // { rows: [], fileName: "" }
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null); // { inserted, updated, failed }
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkImages, setBulkImages] = useState({}); // { filename: base64_string }
   const [adminForm, setAdminForm] = useState({
     brand: "",
     name: "",
@@ -353,8 +350,100 @@ export default function App() {
     tags: "",
   });
   const [openProductFaq, setOpenProductFaq] = useState(0);
-  const [authRuntime, setAuthRuntime] = useState({ mode: "local", detail: "Offline-first local auth active." });
+  const [backendOrders, setBackendOrders] = useState(null);
+  const [systemStatus, setSystemStatus] = useState(null);
+  const [systemStatusLoading, setSystemStatusLoading] = useState(false);
+  const [systemStatusError, setSystemStatusError] = useState("");
   const searchRef = useRef();
+  const hasHydratedInitialRouteRef = useRef(false);
+
+  const getLiveSessionUser = () => {
+    const clerkUser = window.Clerk?.user;
+    const clerkEmail = clerkUser?.primaryEmailAddress?.emailAddress || "";
+    if (!clerkEmail) return null;
+
+    const metadata = clerkUser?.publicMetadata || {};
+    const role = String(clerkUser?.organizationMemberships?.[0]?.role || "");
+    return {
+      name: clerkUser?.firstName || clerkUser?.fullName || clerkEmail.split("@")[0] || "Nafuu User",
+      email: clerkEmail,
+      isAdmin: Boolean(metadata.isAdmin || role === "org:admin" || role === "admin"),
+    };
+  };
+
+  const liveSessionUser = getLiveSessionUser();
+  const activeUser = liveSessionUser || currentUser;
+
+  const getClerkToken = useCallback(async () => {
+    try {
+      return (await window.Clerk?.session?.getToken()) ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const fetchProfileFromBackend = useCallback(async () => {
+    const token = await getClerkToken();
+    if (!token) return null;
+
+    const response = await fetch(`${API_BASE_URL}/api/profile/me`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 404) return null;
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.message || "Failed to load profile");
+    }
+
+    return data.profile || null;
+  }, [getClerkToken]);
+
+  function slugifySegment(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function decodePathSegment(value) {
+    try {
+      return decodeURIComponent(value || "");
+    } catch {
+      return String(value || "");
+    }
+  }
+
+  function stripHtml(value) {
+    return String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function buildExcerpt(post, max = 180) {
+    const source = post?.excerpt || stripHtml(post?.content || "");
+    if (source.length <= max) return source;
+    return `${source.slice(0, max).trim()}...`;
+  }
+
+  function toLocalDateTimeInput(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
+  useEffect(() => {
+    // Prevent stale order lists from persisting across account changes.
+    setBackendOrders(null);
+  }, [activeUser?.email]);
 
   useEffect(() => {
     const id = setTimeout(() => setHeroVisible(true), 100);
@@ -369,13 +458,206 @@ export default function App() {
     const type = params.get("type");
     if (type === "recovery") {
       setPage("auth");
-      setAuthPanel("reset");
       setAuthMode("signin");
       setAuthErrors({});
       setAuthMsg("Create a new password for your account.");
       window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
     }
   }, []);
+
+  // URL path-based routing
+  useEffect(() => {
+    if (hasHydratedInitialRouteRef.current) return;
+
+    const pathname = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+
+    // Map pathname to page name
+    const pathToPage = {
+      "/": "home",
+      "/cart": "cart",
+      "/checkout": "checkout",
+      "/my-orders": "my-orders",
+      "/profile": "profile",
+      "/track": "track",
+      "/status": "status",
+      "/admin": "admin",
+      "/about": "about",
+      "/auth": "auth",
+      "/blog": "blog",
+    };
+
+    // Check if it's a product detail page (last segment is a product ID like p01, p08)
+    const pathSegsRaw = window.location.pathname.split("/").filter(Boolean);
+    const lastSeg = pathSegsRaw[pathSegsRaw.length - 1] || "";
+    const isProductDetail = pathname.startsWith("/products") && /^p\d+$/i.test(lastSeg);
+
+    const blogPath = pathname.startsWith("/blog");
+    const blogSlugFromPath = blogPath && pathSegsRaw.length > 1 ? decodePathSegment(pathSegsRaw[1]) : "";
+
+    // Find matching page from pathname
+    const matchedPage = isProductDetail
+      ? "product"
+      : blogPath && blogSlugFromPath
+        ? "blog-post"
+        : blogPath
+          ? "blog"
+          : pathname.startsWith("/products")
+            ? "products"
+            : pathToPage[pathname];
+
+    if (matchedPage && matchedPage !== page) {
+      setPage(matchedPage);
+    }
+
+    if (matchedPage === "product") {
+      // Load product from ID in URL
+      const productId = lastSeg;
+      const found = catalog.find((p) => p.id.toLowerCase() === productId.toLowerCase());
+      if (found) setSelected(withStockStatus(found));
+    }
+
+    if (matchedPage === "blog-post") {
+      setSelectedBlogSlug(slugifySegment(blogSlugFromPath));
+      setSelectedBlogPost(null);
+    }
+
+    if (matchedPage === "products" || matchedPage === "product") {
+      const validCategories = new Set(CATEGORIES.map((c) => c.key));
+      const pathSegments = window.location.pathname
+        .split("/")
+        .filter(Boolean)
+        .map((seg) => decodePathSegment(seg));
+
+      const categorySegment = pathSegments[1] || "";
+      const brandSegment = pathSegments[2] || "";
+      const familySegment = pathSegments[3] || "";
+
+      const categoryFromPath = CATEGORIES.find((c) => slugifySegment(c.key) === slugifySegment(categorySegment))?.key;
+      const categoryFromQuery = params.get("category");
+      const safeCategory =
+        (categoryFromPath && validCategories.has(categoryFromPath) && categoryFromPath) ||
+        (categoryFromQuery && validCategories.has(categoryFromQuery) && categoryFromQuery) ||
+        "all";
+      setCategory(safeCategory);
+
+      const candidateBrand = brandSegment || params.get("brand");
+      const validBrands = new Set(
+        catalog
+          .filter((p) => safeCategory === "all" || p.category === safeCategory)
+          .map((p) => p.brand)
+      );
+      const safeBrand =
+        Array.from(validBrands).find((brand) => slugifySegment(brand) === slugifySegment(candidateBrand)) ||
+        "all";
+      setBrandSubdivision(safeBrand);
+
+      const candidateFamily = familySegment || params.get("family");
+      const validFamilies = new Set(
+        catalog
+          .filter((p) => safeCategory === "all" || p.category === safeCategory)
+          .filter((p) => safeBrand === "all" || p.brand === safeBrand)
+          .map((p) => getModelFamily(p))
+      );
+      const safeFamily =
+        Array.from(validFamilies).find((family) => slugifySegment(family) === slugifySegment(candidateFamily)) ||
+        "all";
+      setModelSubdivision(safeFamily);
+
+      const nextQuery = params.get("q");
+      if (nextQuery !== null) {
+        setSearch(nextQuery);
+        setNavSearch(nextQuery);
+      }
+
+      const nextSort = params.get("sort");
+      if (nextSort) setSortBy(nextSort);
+
+      const nextGrade = params.get("grade");
+      if (nextGrade) setGradeFilter(nextGrade);
+
+      const nextPrice = params.get("price");
+      if (nextPrice) setPriceBand(nextPrice);
+    }
+
+    if (matchedPage === "auth") {
+      const mode = (params.get("mode") || "").toLowerCase();
+      if (mode === "signin" || mode === "signup") {
+        setAuthMode(mode);
+      }
+    }
+
+    hasHydratedInitialRouteRef.current = true;
+  }, [catalog, page]);
+
+  // Update URL when page changes
+  useEffect(() => {
+    const pageToPath = {
+      home: "/",
+      cart: "/cart",
+      checkout: "/checkout",
+      "my-orders": "/my-orders",
+      profile: "/profile",
+      track: "/track",
+      status: "/status",
+      admin: "/admin",
+      about: "/about",
+      auth: "/auth",
+      blog: "/blog",
+    };
+
+    let newPath = (page === "products" || page === "product") ? "/products" : pageToPath[page];
+    if (!newPath) return;
+
+    const params = new URLSearchParams();
+    if (page === "auth") {
+      params.set("mode", authMode === "signup" ? "signup" : "signin");
+    }
+    if (page === "product" && selected) {
+      const cat = selected.category || "";
+      const brand = selected.brand || "";
+      if (cat) newPath += `/${slugifySegment(cat)}`;
+      if (cat && brand) newPath += `/${slugifySegment(brand)}`;
+      newPath += `/${selected.id}`;
+    } else if (page === "products") {
+      if (category !== "all") {
+        newPath += `/${slugifySegment(category)}`;
+      }
+      if (category !== "all" && brandSubdivision !== "all") {
+        newPath += `/${slugifySegment(brandSubdivision)}`;
+      }
+      if (category !== "all" && brandSubdivision !== "all" && modelSubdivision !== "all") {
+        newPath += `/${slugifySegment(modelSubdivision)}`;
+      }
+      if (search.trim()) params.set("q", search.trim());
+      if (sortBy !== "featured") params.set("sort", sortBy);
+      if (gradeFilter !== "all") params.set("grade", gradeFilter);
+      if (priceBand !== "all") params.set("price", priceBand);
+    } else if (page === "blog-post") {
+      const slug = slugifySegment(selectedBlogPost?.slug || selectedBlogSlug);
+      if (!slug) return;
+      newPath = `/blog/${slug}`;
+    }
+
+    const nextUrl = params.toString() ? `${newPath}?${params.toString()}` : newPath;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl !== nextUrl) {
+      window.history.replaceState({ page }, document.title, nextUrl);
+    }
+  }, [
+    page,
+    authMode,
+    selected,
+    selectedBlogPost,
+    selectedBlogSlug,
+    category,
+    brandSubdivision,
+    modelSubdivision,
+    search,
+    sortBy,
+    gradeFilter,
+    priceBand,
+  ]);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -386,6 +668,14 @@ export default function App() {
   useEffect(() => {
     setNavSearch(search);
   }, [search]);
+
+  useEffect(() => {
+    setBrandSubdivision("all");
+  }, [category]);
+
+  useEffect(() => {
+    setModelSubdivision("all");
+  }, [category, brandSubdivision]);
 
   useEffect(() => {
     setSelectedImageIndex(0);
@@ -399,38 +689,41 @@ export default function App() {
     return () => clearTimeout(id);
   }, [search]);
 
+  useEffect(() => {
+    if (page === "blog") {
+      void loadBlogPosts();
+      return;
+    }
+
+    if (page === "blog-post") {
+      const fallbackPathSlug = decodePathSegment(window.location.pathname.split("/").filter(Boolean)[1] || "");
+      const slug = slugifySegment(selectedBlogSlug || selectedBlogPost?.slug || fallbackPathSlug);
+      if (!slug) {
+        setBlogError("Article slug is missing.");
+        setSelectedBlogPost(null);
+        return;
+      }
+      setSelectedBlogSlug(slug);
+      void loadBlogPostBySlug(slug);
+    }
+  }, [page, selectedBlogSlug]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const isMobileFilters = viewportWidth < 980;
 
   const loadOrders = async () => {
     try {
       const res = await storageApi.get(ORDERS_KEY);
-      if (res?.value) setOrders(JSON.parse(res.value));
+      if (res?.value) setOrders(sanitizeArray(JSON.parse(res.value)));
       else setOrders([]);
     } catch {
       setOrders([]);
     }
   };
 
-  const loadCatalog = async () => {
-    try {
-      const res = await storageApi.get(CATALOG_KEY);
-      if (res?.value) {
-        const parsed = JSON.parse(res.value);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setCatalog(parsed.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" })));
-          return;
-        }
-      }
-      setCatalog(PRODUCTS.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" })));
-    } catch {
-      setCatalog(PRODUCTS.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" })));
-    }
-  };
-
   const loadCart = async () => {
     try {
       const res = await storageApi.get(CART_KEY);
-      if (res?.value) setCart(JSON.parse(res.value));
+      if (res?.value) setCart(sanitizeArray(JSON.parse(res.value)));
       else setCart([]);
     } catch {
       setCart([]);
@@ -440,7 +733,7 @@ export default function App() {
   const loadWishlist = async () => {
     try {
       const res = await storageApi.get(WISHLIST_KEY);
-      if (res?.value) setWishlist(JSON.parse(res.value));
+      if (res?.value) setWishlist(sanitizeArray(JSON.parse(res.value)));
       else setWishlist([]);
     } catch {
       setWishlist([]);
@@ -461,6 +754,7 @@ export default function App() {
     } catch (error) {
       console.error("Failed to save wishlist:", error);
     }
+    if (activeUser) saveWishlistToBackend(items);
   };
 
   const saveCatalog = async (items) => {
@@ -532,50 +826,100 @@ export default function App() {
     return wishlist.some((item) => item.id === productId);
   };
 
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const safeCart = sanitizeArray(cart);
+  const cartCount = safeCart.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const cartTotal = safeCart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
   const checkoutItems = (selected
-    ? [{ ...selected, quantity: selected.quantity || 1 }]
-    : cart).filter(isAvailable);
-  const checkoutItemCount = checkoutItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const checkoutSubtotal = checkoutItems.reduce((sum, item) => sum + item.price * (item.quantity || 1), 0);
-  const checkoutSavings = checkoutItems.reduce((sum, item) => sum + (item.market - item.price) * (item.quantity || 1), 0);
+    ? [selected && typeof selected === "object" ? { ...selected, quantity: selected.quantity || 1 } : null]
+    : safeCart)
+    .filter((item) => item && isAvailable(item));
+  const checkoutItemCount = checkoutItems.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
+  const checkoutSubtotal = checkoutItems.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
+  const checkoutSavings = checkoutItems.reduce((sum, item) => sum + (Number(item.market || 0) - Number(item.price || 0)) * Number(item.quantity || 1), 0);
   const checkoutDiscount = appliedCoupon ? Math.floor(checkoutSubtotal * appliedCoupon.discount) : 0;
   const checkoutTotal = checkoutSubtotal - checkoutDiscount;
 
   useEffect(() => {
-    loadOrders();
-    loadCart();
-    loadWishlist();
-    loadCatalog();
-    
-    // Load reviews
-    const savedReviews = storageApi.get("nafuu-reviews");
-    if (savedReviews) {
+    const hydrateLocalState = async () => {
+      const loadCatalog = async () => {
+        const fallbackProducts = PRODUCTS.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" }));
+
+        try {
+          const apiResponse = await fetch(`${API_BASE_URL}/api/products`, {
+            headers: { Accept: "application/json" },
+          });
+          const apiData = await apiResponse.json().catch(() => ({}));
+
+          if (apiResponse.ok && apiData?.ok && Array.isArray(apiData.items) && apiData.items.length > 0) {
+            const normalized = apiData.items.map((p) => ({
+              ...p,
+              image: p.image || p.imageUrl || "",
+              images: Array.isArray(p.images) ? p.images : [],
+              tags: Array.isArray(p.tags) ? p.tags : [],
+              stockStatus: p.stockStatus || "in_stock",
+            }));
+            setCatalog(normalized);
+            await saveCatalog(normalized);
+            return;
+          }
+
+          const res = await storageApi.get(CATALOG_KEY);
+          if (res?.value) {
+            const parsed = JSON.parse(res.value);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setCatalog(parsed.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" })));
+              return;
+            }
+          }
+          setCatalog(fallbackProducts);
+        } catch {
+          setCatalog(fallbackProducts);
+        }
+      };
+
+      await Promise.all([loadOrders(), loadCart(), loadWishlist(), loadCatalog()]);
+
       try {
-        setReviews(JSON.parse(savedReviews));
+        const savedReviews = await storageApi.get("nafuu-reviews");
+        if (savedReviews?.value) {
+          setReviews(JSON.parse(savedReviews.value));
+        }
       } catch (e) {
         console.error("Error loading reviews:", e);
       }
-    }
-    
-    // Load stock alerts
-    const savedAlerts = storageApi.get("nafuu-stock-alerts");
-    if (savedAlerts) {
+
       try {
-        setStockAlerts(JSON.parse(savedAlerts));
+        const savedAlerts = await storageApi.get("nafuu-stock-alerts");
+        if (savedAlerts?.value) {
+          setStockAlerts(JSON.parse(savedAlerts.value));
+        }
       } catch (e) {
         console.error("Error loading stock alerts:", e);
       }
-    }
+    };
+
+    hydrateLocalState();
   }, []);
 
   useEffect(() => {
     let mounted = true;
     const loadSession = async () => {
       try {
-        const runtime = getAuthRuntime();
-        if (mounted) setAuthRuntime(runtime);
+        const clerkEmail = window.Clerk?.user?.primaryEmailAddress?.emailAddress || "";
+        if (clerkEmail) {
+          const clerkUser = window.Clerk.user;
+          const metadata = clerkUser?.publicMetadata || {};
+          const role = String(clerkUser?.organizationMemberships?.[0]?.role || "");
+          const isAdmin = Boolean(metadata.isAdmin || role === "org:admin" || role === "admin");
+          if (mounted) {
+            setCurrentUser({
+              name: clerkUser?.firstName || clerkUser?.fullName || clerkEmail.split("@")[0] || "Nafuu User",
+              email: clerkEmail,
+              isAdmin,
+            });
+          }
+          return;
+        }
 
         const session = await restoreSession();
         if (mounted && session?.user?.email) {
@@ -586,10 +930,72 @@ export default function App() {
       }
     };
     loadSession();
+
+    // Subscribe to Supabase auth state changes so OAuth callbacks (e.g. Google
+    // redirect) automatically update the user without requiring a page refresh.
+    const unsubscribe = authSubscribeToAuthChanges((user) => {
+      if (mounted) setCurrentUser(user);
+    });
+
     return () => {
       mounted = false;
+      unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateProfile = async () => {
+      if (!activeUser?.email) {
+        if (active) {
+          setProfileData(createProfileTemplate());
+          setAddressDraft(createDefaultAddress());
+          setProfileMsg("");
+        }
+        return;
+      }
+
+      const key = activeUser.email.toLowerCase();
+      try {
+        const backendProfile = await fetchProfileFromBackend();
+        if (backendProfile) {
+          const normalizedBackendProfile = normalizeProfileData(backendProfile, activeUser);
+          if (active) {
+            setProfileData(normalizedBackendProfile);
+            setAddressDraft(createDefaultAddress(activeUser));
+            setProfileMsg("");
+          }
+
+          const localProfiles = (await storageApi.get(PROFILES_KEY))?.value;
+          const parsedLocalProfiles = localProfiles ? JSON.parse(localProfiles) : {};
+          parsedLocalProfiles[key] = normalizedBackendProfile;
+          await storageApi.set(PROFILES_KEY, JSON.stringify(parsedLocalProfiles));
+          return;
+        }
+
+        const stored = await storageApi.get(PROFILES_KEY);
+        const allProfiles = stored?.value ? JSON.parse(stored.value) : {};
+        const existing = normalizeProfileData(allProfiles[key] || {}, activeUser);
+        if (active) {
+          setProfileData(existing);
+          setAddressDraft(createDefaultAddress(activeUser));
+          setProfileMsg("");
+        }
+      } catch {
+        if (active) {
+          setProfileData(createProfileTemplate(activeUser));
+          setAddressDraft(createDefaultAddress(activeUser));
+          setProfileMsg("Could not load saved profile details.");
+        }
+      }
+    };
+
+    hydrateProfile();
+    return () => {
+      active = false;
+    };
+  }, [activeUser, fetchProfileFromBackend]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -604,11 +1010,95 @@ export default function App() {
     if (next) setTrackedOrder(next);
   }, [orders, trackedOrder?.id]);
 
+  useEffect(() => {
+    if (page !== "status") return;
+    void loadSystemStatus();
+  }, [page]);
+
+  useEffect(() => {
+    if (page !== "admin" || !showSeoPanel) return;
+    void loadSeoAdminData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, showSeoPanel]);
+
+  useEffect(() => {
+    if (page !== "admin" || !showBlogAdminPanel) return;
+    void loadAdminBlogArticles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, showBlogAdminPanel]);
+
+  // Sync wishlist and stock alerts from backend whenever the user signs in
+  useEffect(() => {
+    if (!activeUser?.email) return;
+    let cancelled = false;
+    fetchWishlistFromBackend().then((items) => {
+      if (!cancelled && Array.isArray(items) && items.length > 0) {
+        setWishlist(items);
+        storageApi.set(WISHLIST_KEY, JSON.stringify(items)).catch(() => {});
+      }
+    }).catch(() => {});
+    fetchStockAlertsFromBackend().then((alerts) => {
+      if (!cancelled && Array.isArray(alerts) && alerts.length > 0) {
+        setStockAlerts(alerts);
+        storageApi.set("nafuu-stock-alerts", JSON.stringify(alerts)).catch(() => {});
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUser?.email]);
+
+  // Load orders from backend when user navigates to My Orders page
+  useEffect(() => {
+    if (page !== "my-orders" || !activeUser) return;
+    let cancelled = false;
+    fetchMyOrdersFromBackend()
+      .then((items) => { if (!cancelled && items !== null) setBackendOrders(items); })
+      .catch(() => { /* backend unavailable - fall through to local orders */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, activeUser]);
+
+  useEffect(() => {
+    if (page !== "checkout" || !activeUser?.email) return;
+
+    const defaultAddress = (profileData.addresses || []).find((address) => address.id === profileData.defaultAddressId)
+      || profileData.addresses?.[0]
+      || null;
+    const nextName = profileData.fullName || activeUser.name || "";
+    const nextPhone = profileData.phone || defaultAddress?.phone || profileData.mpesaPhone || "";
+    const nextLocation = [defaultAddress?.town || profileData.town, defaultAddress?.county || profileData.county]
+      .filter(Boolean)
+      .join(", ") || defaultAddress?.addressLine || profileData.addressLine || "";
+    const nextNotes = [defaultAddress?.addressLine, defaultAddress?.landmark || profileData.landmark]
+      .filter(Boolean)
+      .join(" - ");
+
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || nextName,
+      phone: prev.phone || nextPhone,
+      location: prev.location || nextLocation,
+      notes: prev.notes || nextNotes,
+    }));
+  }, [
+    page,
+    activeUser?.email,
+    activeUser?.name,
+    profileData.addressLine,
+    profileData.addresses,
+    profileData.county,
+    profileData.defaultAddressId,
+    profileData.fullName,
+    profileData.landmark,
+    profileData.mpesaPhone,
+    profileData.phone,
+    profileData.town,
+  ]);
+
   // Handle Pesapal payment callback
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const orderTrackingId = urlParams.get("OrderTrackingId");
-    const merchantReference = urlParams.get("OrderMerchantReference");
     
     if (orderTrackingId) {
       // Clear URL parameters
@@ -674,7 +1164,8 @@ export default function App() {
             // Show order confirmation or error
             setLastOrder(updatedOrder);
             if (isPaid) {
-              clearCart();
+              setCart([]);
+              saveCart([]);
               setPage("confirm");
             } else {
               alert("Payment was not successful. Please try again or use M-Pesa.");
@@ -687,34 +1178,56 @@ export default function App() {
           alert("Failed to verify payment status. Please contact support with your order reference.");
         });
     }
-  }, []);
+  }, [orders, catalog]);
 
-  const filtered = catalog.filter((p) => {
+  const filtered = catalog.filter((raw) => {
+    const p = raw && typeof raw === "object" ? raw : {};
     const query = page === "products" ? debouncedSearch : search;
     const q = query.trim().toLowerCase();
-    const matchCat = category === "all" || p.category === category;
-    const matchGrade = gradeFilter === "all" || p.grade === gradeFilter;
+    const categoryValue = String(p.category || "");
+    const brandValue = String(p.brand || "");
+    const nameValue = String(p.name || "");
+    const specValue = String(p.spec || "");
+    const gradeValue = String(p.grade || "");
+    const priceValue = Number(p.price || 0);
+    const tagsValue = Array.isArray(p.tags) ? p.tags.map((t) => String(t || "").toLowerCase()) : [];
+
+    const matchCat = category === "all" || categoryValue === category;
+    const matchSubdivision = brandSubdivision === "all" || brandValue === brandSubdivision;
+    const matchModelSubdivision =
+      modelSubdivision === "all" ||
+      getModelFamily(p) === modelSubdivision;
+    const matchGrade = gradeFilter === "all" || gradeValue === gradeFilter;
     const matchPrice =
       priceBand === "all" ||
-      (priceBand === "budget" && p.price < 25000) ||
-      (priceBand === "mid" && p.price >= 25000 && p.price <= 50000) ||
-      (priceBand === "premium" && p.price > 50000);
+      (priceBand === "budget" && priceValue < 25000) ||
+      (priceBand === "mid" && priceValue >= 25000 && priceValue <= 50000) ||
+      (priceBand === "premium" && priceValue > 50000);
     const matchQ =
       !q ||
-      p.name.toLowerCase().includes(q) ||
-      p.brand.toLowerCase().includes(q) ||
-      p.spec.toLowerCase().includes(q) ||
-      p.tags.some((t) => t.includes(q));
-    return matchCat && matchGrade && matchPrice && matchQ;
+      nameValue.toLowerCase().includes(q) ||
+      brandValue.toLowerCase().includes(q) ||
+      specValue.toLowerCase().includes(q) ||
+      tagsValue.some((t) => t.includes(q));
+    return matchCat && matchSubdivision && matchModelSubdivision && matchGrade && matchPrice && matchQ;
   });
 
   const sortedFiltered = [...filtered].sort((a, b) => {
-    if (sortBy === "price-low") return a.price - b.price;
-    if (sortBy === "price-high") return b.price - a.price;
-    if (sortBy === "saving") return b.market - b.price - (a.market - a.price);
-    if (sortBy === "name-az") return a.name.localeCompare(b.name);
-    if (sortBy === "name-za") return b.name.localeCompare(a.name);
-    if (sortBy === "brand") return a.brand.localeCompare(b.brand) || a.name.localeCompare(b.name);
+    const aPrice = Number(a?.price || 0);
+    const bPrice = Number(b?.price || 0);
+    const aMarket = Number(a?.market || 0);
+    const bMarket = Number(b?.market || 0);
+    const aName = String(a?.name || "");
+    const bName = String(b?.name || "");
+    const aBrand = String(a?.brand || "");
+    const bBrand = String(b?.brand || "");
+
+    if (sortBy === "price-low") return aPrice - bPrice;
+    if (sortBy === "price-high") return bPrice - aPrice;
+    if (sortBy === "saving") return bMarket - bPrice - (aMarket - aPrice);
+    if (sortBy === "name-az") return aName.localeCompare(bName);
+    if (sortBy === "name-za") return bName.localeCompare(aName);
+    if (sortBy === "brand") return aBrand.localeCompare(bBrand) || aName.localeCompare(bName);
     return 0;
   });
 
@@ -724,10 +1237,97 @@ export default function App() {
   });
 
   const categoryCount = (categoryKey) => catalog.filter((p) => p.category === categoryKey).length;
+  function getModelFamily(product) {
+    const brand = String(product?.brand || "").trim().toLowerCase();
+    const name = String(product?.name || "").trim();
+    if (!name) return "Other";
+
+    const [first, second] = name.split(/\s+/);
+    if (brand === "hp") {
+      if (/elitebook/i.test(name)) return "EliteBook";
+      if (/probook/i.test(name)) return "ProBook";
+      if (/zbook/i.test(name)) return "ZBook";
+      if (/dragonfly/i.test(name)) return "Dragonfly";
+      if (/envy/i.test(name)) return "Envy";
+      if (/spectre/i.test(name)) return "Spectre";
+      if (/pavilion/i.test(name)) return "Pavilion";
+    }
+
+    if (brand === "lenovo") {
+      if (/^x1\b|x1\s/i.test(name)) return "X1 Series";
+      if (/thinkpad/i.test(name)) return "ThinkPad";
+      if (/thinkbook/i.test(name)) return "ThinkBook";
+      if (/yoga/i.test(name)) return "Yoga Series";
+      if (/^x\d+/i.test(first)) return "X Series";
+      if (/^t\d+/i.test(first)) return "T Series";
+      if (/^p\d+/i.test(first)) return "P Series";
+    }
+
+    if (brand === "samsung") {
+      if (/galaxy\s+s/i.test(name)) return "Galaxy S";
+      if (/galaxy\s+a/i.test(name)) return "Galaxy A";
+      if (/galaxy\s+note/i.test(name)) return "Galaxy Note";
+      if (/buds/i.test(name)) return "Galaxy Buds";
+      if (/galaxy/i.test(name)) return "Galaxy";
+    }
+
+    if (brand === "apple") {
+      if (/^iphone/i.test(name)) return "iPhone";
+      if (/^airpods/i.test(name)) return "AirPods";
+      if (/^macbook/i.test(name)) return "MacBook";
+      if (/^ipad/i.test(name)) return "iPad";
+      if (/watch/i.test(name)) return "Apple Watch";
+    }
+
+    if (brand === "xiaomi") {
+      if (/redmi\s+note/i.test(name)) return "Redmi Note";
+      if (/redmi/i.test(name)) return "Redmi";
+      if (/\bpoco\b/i.test(name)) return "POCO";
+      if (/\bmi\b/i.test(name)) return "Mi Series";
+    }
+
+    if (/^x\d+/i.test(first)) return first.toUpperCase();
+    if (/^t\d+/i.test(first)) return first.toUpperCase();
+    if (/^p\d+/i.test(first)) return first.toUpperCase();
+    if (/^yoga$/i.test(first) && second) return `Yoga ${second}`;
+
+    return first;
+  }
+  const activeCategoryLabel = CATEGORIES.find((c) => c.key === category)?.label || "Products";
+  const subdivisionOptions =
+    category === "all"
+      ? []
+      : Array.from(
+          new Set(
+            catalog
+              .filter((p) => p.category === category)
+              .map((p) => p.brand)
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+  const modelSubdivisionOptions =
+    category === "all"
+      ? []
+      : Array.from(
+          new Set(
+            catalog
+              .filter((p) => p.category === category)
+              .filter((p) => brandSubdivision === "all" || p.brand === brandSubdivision)
+              .map((p) => getModelFamily(p))
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+  const subdivisionCount = (brand) =>
+    catalog.filter((p) => p.category === category && p.brand === brand).length;
+  const modelSubdivisionCount = (family) =>
+    catalog
+      .filter((p) => p.category === category)
+      .filter((p) => brandSubdivision === "all" || p.brand === brandSubdivision)
+      .filter((p) => getModelFamily(p) === family).length;
 
   const sendEmailNotification = async (type, data) => {
     // Email notification framework - integrate with email service (e.g., SendGrid, Resend, AWS SES)
-    console.log(`📧 Email notification: ${type}`, data);
+    console.log(`[email] ${type}`, data);
     
     // Simulated email templates
     const templates = {
@@ -801,7 +1401,7 @@ export default function App() {
   };
 
   // Product Reviews & Ratings
-  const submitReview = (productId, rating, reviewText) => {
+  const _submitReview = (productId, rating, reviewText) => {
     if (!rating || rating < 1 || rating > 5) {
       alert("Please select a rating between 1 and 5");
       return;
@@ -857,10 +1457,11 @@ export default function App() {
     if (stockAlerts.find(p => p.id === product.id)) {
       updatedAlerts = stockAlerts.filter(p => p.id !== product.id);
     } else {
-      updatedAlerts = [...stockAlerts, { id: product.id, name: `${product.brand} ${product.name}`, email: currentUser?.email }];
+      updatedAlerts = [...stockAlerts, { id: product.id, name: `${product.brand} ${product.name}`, email: activeUser?.email || currentUser?.email || "" }];
     }
     setStockAlerts(updatedAlerts);
     storageApi.set("nafuu-stock-alerts", JSON.stringify(updatedAlerts));
+    if (activeUser) saveStockAlertsToBackend(updatedAlerts);
   };
 
   const hasStockAlert = (productId) => {
@@ -933,7 +1534,7 @@ export default function App() {
         setAdminMsg("Failed to read image file.");
       };
       reader.readAsDataURL(file);
-    } catch (err) {
+    } catch {
       setAdminMsg("Error uploading image.");
     }
   };
@@ -1001,6 +1602,7 @@ export default function App() {
     }
 
     const payload = {
+      id: adminEditId || undefined,
       brand,
       name,
       spec,
@@ -1016,7 +1618,26 @@ export default function App() {
         .split(",")
         .map((t) => t.trim().toLowerCase())
         .filter(Boolean),
+      description: adminEditId ? catalog.find((p) => p.id === adminEditId)?.description || "" : "",
+      longDescription: adminEditId ? catalog.find((p) => p.id === adminEditId)?.longDescription || "" : "",
     };
+
+    try {
+      const savedItem = await saveProductInBackend(payload);
+      if (savedItem) {
+        const updated = adminEditId
+          ? catalog.map((p) => (p.id === adminEditId ? { ...p, ...savedItem } : p))
+          : [savedItem, ...catalog];
+
+        setCatalog(updated);
+        await saveCatalog(updated);
+        setAdminMsg(adminEditId ? "Product updated in backend." : "Product added to backend.");
+        if (!adminEditId) resetAdminForm();
+        return;
+      }
+    } catch (error) {
+      console.warn("Admin product API unavailable, keeping local fallback:", error);
+    }
 
     const updated = adminEditId
       ? catalog.map((p) => (p.id === adminEditId ? { ...p, ...payload } : p))
@@ -1024,19 +1645,40 @@ export default function App() {
 
     setCatalog(updated);
     await saveCatalog(updated);
-    setAdminMsg(adminEditId ? "Product updated." : "Product added.");
+    setAdminMsg(adminEditId ? "Product updated locally." : "Product added locally.");
     if (!adminEditId) resetAdminForm();
   };
 
   const setProductStockStatus = async (productId, stockStatus) => {
+    try {
+      const savedItem = await updateProductStockInBackend(productId, { stockStatus });
+      if (savedItem) {
+        const updated = catalog.map((p) =>
+          p.id === productId ? { ...p, ...savedItem } : p
+        );
+        setCatalog(updated);
+        await saveCatalog(updated);
+        return;
+      }
+    } catch (error) {
+      console.warn("Admin stock API unavailable, keeping local fallback:", error);
+    }
+
     const updated = catalog.map((p) => (p.id === productId ? { ...p, stockStatus } : p));
     setCatalog(updated);
     await saveCatalog(updated);
   };
 
-  const userOrders = currentUser?.email
-    ? orders.filter((o) => (o.customerEmail || "").toLowerCase() === currentUser.email.toLowerCase())
-    : [];
+  const userOrders = (() => {
+    if (!activeUser?.email) return [];
+    const localFiltered = orders.filter(
+      (o) => (o.customerEmail || "").toLowerCase() === activeUser.email.toLowerCase()
+    );
+    if (backendOrders === null) return localFiltered;
+    const backendIds = new Set(backendOrders.map((o) => o.id));
+    const localOnly = localFiltered.filter((o) => !backendIds.has(o.id));
+    return [...backendOrders, ...localOnly].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  })();
 
   const submitSearch = (query = navSearch) => {
     setSearch(query);
@@ -1051,6 +1693,606 @@ export default function App() {
     if (!form.location.trim()) e.location = "Delivery location is required";
     setFormErrors(e);
     return Object.keys(e).length === 0;
+  };
+
+  const saveProfileToBackend = async (profile) => {
+    const token = await getClerkToken();
+    if (!token) return null;
+
+    const response = await fetch(`${API_BASE_URL}/api/profile/me`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(profile),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.message || "Failed to save profile");
+    }
+
+    return data.profile || null;
+  };
+
+  const createOrderInBackend = async (payload) => {
+    const token = await getClerkToken();
+    const response = await fetch(`${API_BASE_URL}/api/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Order API request failed");
+    }
+
+    return data.order || null;
+  };
+
+  const fetchTrackedOrderFromBackend = async (reference) => {
+    const response = await fetch(`${API_BASE_URL}/api/tracking/${encodeURIComponent(reference)}`, {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Tracking API request failed");
+    }
+
+    return data.order || null;
+  };
+
+  const fetchMyOrdersFromBackend = async () => {
+    const token = await getClerkToken();
+    if (!token) return null;
+    const response = await fetch(`${API_BASE_URL}/api/orders/me`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "My orders API request failed");
+    }
+
+    return Array.isArray(data.items) ? data.items : [];
+  };
+
+  const syncBackendOrders = async () => {
+    try {
+      const items = await fetchMyOrdersFromBackend();
+      if (items !== null) {
+        setBackendOrders(items);
+      }
+    } catch {
+      // Keep graceful fallback behavior when backend/auth is unavailable.
+    }
+  };
+
+  const fetchWishlistFromBackend = async () => {
+    const token = await getClerkToken();
+    if (!token) return null;
+    const response = await fetch(`${API_BASE_URL}/api/wishlist/me`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) return null;
+    return Array.isArray(data.items) ? data.items : null;
+  };
+
+  const saveWishlistToBackend = async (items) => {
+    const token = await getClerkToken();
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/wishlist/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ items }),
+      });
+    } catch { /* silent - localStorage already saved */ }
+  };
+
+  const fetchStockAlertsFromBackend = async () => {
+    const token = await getClerkToken();
+    if (!token) return null;
+    const response = await fetch(`${API_BASE_URL}/api/stock-alerts/me`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) return null;
+    return Array.isArray(data.alerts) ? data.alerts : null;
+  };
+
+  const saveStockAlertsToBackend = async (alerts) => {
+    const token = await getClerkToken();
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/stock-alerts/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ alerts }),
+      });
+    } catch { /* silent */ }
+  };
+
+  const fetchBlogPostsFromBackend = async () => {
+    const response = await fetch(`${API_BASE_URL}/api/blog?limit=30`, {
+      headers: { Accept: "application/json" },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Could not load blog posts");
+    }
+    return Array.isArray(data.items) ? data.items : [];
+  };
+
+  const fetchBlogPostBySlugFromBackend = async (slug) => {
+    const response = await fetch(`${API_BASE_URL}/api/blog/${encodeURIComponent(slug)}`, {
+      headers: { Accept: "application/json" },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Could not load the requested article");
+    }
+    return data.item || null;
+  };
+
+  const loadBlogPosts = async () => {
+    setBlogLoading(true);
+    setBlogError("");
+    try {
+      const items = await fetchBlogPostsFromBackend();
+      setBlogPosts(items);
+      return items;
+    } catch (error) {
+      setBlogError(error?.message || "Could not load blog posts.");
+      setBlogPosts([]);
+      return [];
+    } finally {
+      setBlogLoading(false);
+    }
+  };
+
+  const loadBlogPostBySlug = async (slug) => {
+    const safeSlug = slugifySegment(slug);
+    if (!safeSlug) return null;
+
+    setBlogLoading(true);
+    setBlogError("");
+    try {
+      const post = await fetchBlogPostBySlugFromBackend(safeSlug);
+      setSelectedBlogPost(post);
+      return post;
+    } catch (error) {
+      setSelectedBlogPost(null);
+      setBlogError(error?.message || "Could not load this article.");
+      return null;
+    } finally {
+      setBlogLoading(false);
+    }
+  };
+
+  const callAdminSeoApi = async (path, options = {}) => {
+    const token = await getClerkToken();
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "SEO admin API request failed");
+    }
+    return data;
+  };
+
+  const loadSeoAdminDashboard = async () => {
+    const data = await callAdminSeoApi("/api/admin/seo/dashboard?rangeDays=30");
+    setSeoDashboard(data);
+    return data;
+  };
+
+  const loadSeoAdminTasks = async () => {
+    const data = await callAdminSeoApi("/api/admin/seo/tasks");
+    setSeoTasks(Array.isArray(data.items) ? data.items : []);
+    return data;
+  };
+
+  const loadSeoAdminData = async () => {
+    setSeoLoading(true);
+    setSeoError("");
+    try {
+      await Promise.all([loadSeoAdminDashboard(), loadSeoAdminTasks()]);
+    } catch (error) {
+      setSeoError(error?.message || "Could not load SEO admin data.");
+    } finally {
+      setSeoLoading(false);
+    }
+  };
+
+  const loadAdminBlogArticles = async () => {
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      const data = await callAdminSeoApi("/api/admin/blog/articles?status=all&limit=100");
+      setBlogAdminItems(Array.isArray(data.items) ? data.items : []);
+      return data;
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not load blog articles.");
+      setBlogAdminItems([]);
+      return null;
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const clearBlogAdminDraft = () => {
+    setBlogAdminEditingId("");
+    setBlogAdminDraft({
+      title: "",
+      slug: "",
+      excerpt: "",
+      content: "",
+      focusKeyword: "",
+      metaTitle: "",
+      metaDescription: "",
+      publishedAt: "",
+      status: "draft",
+    });
+  };
+
+  const startBlogAdminEdit = (item) => {
+    setBlogAdminEditingId(item?.id || "");
+    setBlogAdminDraft({
+      title: item?.title || "",
+      slug: item?.slug || "",
+      excerpt: item?.excerpt || "",
+      content: item?.content || "",
+      focusKeyword: item?.focusKeyword || "",
+      metaTitle: item?.metaTitle || "",
+      metaDescription: item?.metaDescription || "",
+      publishedAt: toLocalDateTimeInput(item?.publishedAt),
+      status: item?.status || "draft",
+    });
+  };
+
+  const saveBlogAdminDraft = async () => {
+    if (!blogAdminDraft.title.trim()) {
+      setBlogAdminError("Article title is required.");
+      return;
+    }
+
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      const path = blogAdminEditingId
+        ? `/api/admin/blog/articles/${encodeURIComponent(blogAdminEditingId)}`
+        : "/api/admin/blog/articles";
+      const method = blogAdminEditingId ? "PATCH" : "POST";
+
+      await callAdminSeoApi(path, {
+        method,
+        body: JSON.stringify({
+          ...blogAdminDraft,
+          publishedAt: blogAdminDraft.publishedAt || null,
+        }),
+      });
+
+      await loadAdminBlogArticles();
+      clearBlogAdminDraft();
+      setAdminMsg(blogAdminEditingId ? "Blog article updated." : "Blog article created.");
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not save blog article.");
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const publishBlogAdminItem = async (item) => {
+    if (!item?.id) return;
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      await callAdminSeoApi(`/api/admin/blog/articles/${encodeURIComponent(item.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "published" }),
+      });
+      await loadAdminBlogArticles();
+      setAdminMsg("Blog article published.");
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not publish blog article.");
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const unpublishBlogAdminItem = async (item) => {
+    if (!item?.id) return;
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      await callAdminSeoApi(`/api/admin/blog/articles/${encodeURIComponent(item.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "draft" }),
+      });
+      await loadAdminBlogArticles();
+      setAdminMsg("Blog article moved back to draft.");
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not unpublish blog article.");
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const deleteBlogAdminItem = async (item) => {
+    if (!item?.id) return;
+    const confirmed = window.confirm(`Delete article "${item.title || item.id}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      await callAdminSeoApi(`/api/admin/blog/articles/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+      });
+      await loadAdminBlogArticles();
+      if (blogAdminEditingId === item.id) {
+        clearBlogAdminDraft();
+      }
+      setAdminMsg("Blog article deleted.");
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not delete blog article.");
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const runBlogPublishSweep = async () => {
+    setBlogAdminLoading(true);
+    setBlogAdminError("");
+    try {
+      const data = await callAdminSeoApi("/api/admin/seo/blog-publish-sweep", {
+        method: "POST",
+      });
+      await Promise.all([loadAdminBlogArticles(), loadSeoAdminData()]);
+      const summary = data?.summary || {};
+      setAdminMsg(
+        `Publish sweep complete. Processed ${summary.processedArticles || 0} articles, created ${summary.createdTasks || 0} follow-up task(s).`
+      );
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not run publish sweep.");
+    } finally {
+      setBlogAdminLoading(false);
+    }
+  };
+
+  const createSeoFollowUpTask = async (taskPayload) => {
+    try {
+      await callAdminSeoApi("/api/admin/seo/tasks", {
+        method: "POST",
+        body: JSON.stringify(taskPayload),
+      });
+      await loadSeoAdminData();
+      setAdminMsg("SEO follow-up task created.");
+    } catch (error) {
+      setAdminMsg(error?.message || "Failed to create SEO task.");
+    }
+  };
+
+  const updateSeoTaskStatus = async (taskId, status) => {
+    try {
+      await callAdminSeoApi(`/api/admin/seo/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await loadSeoAdminData();
+    } catch (error) {
+      setSeoError(error?.message || "Could not update SEO task.");
+    }
+  };
+
+  const remindSeoTask = async (taskId) => {
+    try {
+      await callAdminSeoApi(`/api/admin/seo/tasks/${encodeURIComponent(taskId)}/remind`, {
+        method: "POST",
+        body: JSON.stringify({ note: "Reminder sent from admin panel." }),
+      });
+      setAdminMsg("Reminder logged for SEO task.");
+    } catch (error) {
+      setSeoError(error?.message || "Could not send reminder.");
+    }
+  };
+
+  const saveProductInBackend = async (payload) => {
+    const token = await getClerkToken();
+    const response = await fetch(`${API_BASE_URL}/api/admin/products`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Admin product API request failed");
+    }
+
+    return data.item || null;
+  };
+
+  const updateProductStockInBackend = async (productId, payload) => {
+    const token = await getClerkToken();
+    const response = await fetch(`${API_BASE_URL}/api/admin/products/${encodeURIComponent(productId)}/stock`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || "Admin stock API request failed");
+    }
+
+    return data.item || null;
+  };
+
+  const handleBulkImageFileSelect = async (files) => {
+    if (!files || files.length === 0) return;
+    const imageMap = { ...bulkImages };
+    let successCount = 0;
+    const maxSize = 5 * 1024 * 1024; // 5 MB
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        continue; // skip non-images
+      }
+      if (file.size > maxSize) {
+        setAdminMsg(`Image "${file.name}" exceeds 5MB, skipped.`);
+        continue;
+      }
+
+      try {
+        const reader = new FileReader();
+        await new Promise((resolve, reject) => {
+          reader.onload = () => {
+            imageMap[file.name] = reader.result; // base64
+            successCount++;
+            resolve();
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      } catch {
+        setAdminMsg(`Failed to read image "${file.name}".`);
+      }
+    }
+    setBulkImages(imageMap);
+    if (successCount > 0) {
+      setAdminMsg(`${successCount} image${successCount !== 1 ? "s" : ""} uploaded. Reference them by filename in Excel.`);
+    }
+  };
+
+  const resolveBulkImageReference = (filename) => {
+    if (!filename) return "";
+    return bulkImages[filename] || filename; // return base64 if found, else keep original URL
+  };
+
+  const handleBulkFileSelect = async (file) => {
+    if (!file) return;
+    setAdminMsg("");
+    setBulkResult(null);
+    setBulkPreview(null);
+    try {
+      const { read, utils } = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const wb = read(new Uint8Array(buffer), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = utils.sheet_to_json(ws, { defval: "" });
+      if (rows.length === 0) {
+        setAdminMsg("The spreadsheet appears to be empty.");
+        return;
+      }
+      // Resolve image references in preview
+      const enrichedRows = rows.map((row) => {
+        const enriched = { ...row };
+        if (enriched.image) enriched.image = resolveBulkImageReference(enriched.image);
+        if (enriched.images && typeof enriched.images === "string") {
+          enriched.images = enriched.images.split(",").map((img) => resolveBulkImageReference(img.trim()));
+        }
+        return enriched;
+      });
+      setBulkPreview({ rows: enrichedRows, fileName: file.name });
+    } catch {
+      setAdminMsg("Failed to read file. Make sure it is a valid .xlsx or .csv file.");
+    }
+  };
+
+  const submitBulkUpload = async () => {
+    if (!bulkPreview?.rows?.length) return;
+    setBulkUploading(true);
+    setAdminMsg("");
+    try {
+      const token = await getClerkToken();
+      // Resolve image references one more time before sending
+      const finalRows = bulkPreview.rows.map((row) => {
+        const final = { ...row };
+        if (final.image) final.image = resolveBulkImageReference(final.image);
+        if (final.images && typeof final.images === "string") {
+          final.images = final.images.split(",").map((img) => resolveBulkImageReference(img.trim()));
+        }
+        return final;
+      });
+      const res = await fetch(`${API_BASE_URL}/api/admin/products/bulk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ products: finalRows }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        setBulkResult(data);
+        setBulkPreview(null);
+        setBulkImages({}); // Clear images after successful upload
+        try {
+          const pRes = await fetch(`${API_BASE_URL}/api/products`);
+          const pData = await pRes.json().catch(() => ({}));
+          if (pData.ok && Array.isArray(pData.items)) {
+            setCatalog(pData.items);
+            await saveCatalog(pData.items);
+          }
+        } catch { /* catalog refresh is best-effort */ }
+      } else {
+        setAdminMsg(`Bulk upload failed: ${data.message || "Unknown error"}`);
+      }
+    } catch (err) {
+      setAdminMsg(`Bulk upload error: ${err.message}`);
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const downloadBulkTemplate = async () => {
+    try {
+      const { utils, writeFile } = await import("xlsx");
+      const template = [
+        { id: "", brand: "Samsung", name: "Galaxy S21", spec: "8GB/128GB · 6.2\" · 5G", category: "phone", grade: "A", price: 35000, market: 55000, image: "https://example.com/image.jpg", description: "Excellent condition", stock_status: "in_stock", stock_quantity: 10, tags: "android, 5g" },
+        { id: "", brand: "Apple", name: "MacBook Pro 14", spec: "M3 · 16GB · 512GB SSD", category: "laptop", grade: "B", price: 185000, market: 250000, image: "https://example.com/mac.jpg", description: "Minor cosmetic scratches", stock_status: "in_stock", stock_quantity: 5, tags: "apple, m3, laptop" },
+      ];
+      const ws = utils.json_to_sheet(template);
+      ws["!cols"] = [8, 12, 20, 30, 10, 8, 10, 10, 40, 30, 14, 15, 20].map((w) => ({ wch: w }));
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, "Products");
+      writeFile(wb, "nafuu-mart-products-template.xlsx");
+    } catch {
+      setAdminMsg("Failed to generate template.");
+    }
   };
 
   const placeOrder = async () => {
@@ -1110,7 +2352,7 @@ export default function App() {
       const orderData = {
         id: genRef(),
         customer: form.name.trim(),
-        customerEmail: currentUser?.email || "",
+        customerEmail: activeUser?.email || "",
         phone: form.phone.trim(),
         location: form.location.trim(),
         product:
@@ -1121,15 +2363,21 @@ export default function App() {
         discount: checkoutDiscount,
         couponCode: appliedCoupon?.code || null,
         items: normalizedItems,
+        notes: form.notes.trim(),
+        paymentMethod: "Pesapal",
+        appBaseUrl: window.location.origin,
       };
 
       try {
+        const backendOrder = await createOrderInBackend(orderData);
+        void syncBackendOrders();
         const pesapalResponse = await initiatePesapalPayment(orderData);
         
         if (pesapalResponse.redirect_url) {
           // Store pending order with Pesapal tracking ID
           const pendingOrder = {
             ...orderData,
+            ...(backendOrder || {}),
             grade:
               checkoutItemCount === 1
                 ? GRADE_INFO[firstItem.grade]?.label || firstItem.grade
@@ -1146,7 +2394,6 @@ export default function App() {
             pesapalMerchantReference: pesapalResponse.merchant_reference,
             timestamp: Date.now(),
             courierRef: "",
-            notes: form.notes.trim(),
           };
 
           // Save pending order
@@ -1154,8 +2401,7 @@ export default function App() {
           await storageApi.set(ORDERS_KEY, JSON.stringify(updated));
           setOrders(updated);
 
-          // Store tracking ID and redirect
-          setPesapalOrderTracking(pesapalResponse.order_tracking_id);
+          // Redirect user to Pesapal checkout
           window.location.href = pesapalResponse.redirect_url;
           return;
         } else {
@@ -1172,9 +2418,6 @@ export default function App() {
       }
     }
 
-    // M-Pesa payment flow (simulated)
-    await new Promise((r) => setTimeout(r, 2000));
-
     const firstItem = checkoutItems[0];
     const normalizedItems = checkoutItems.map((item) => ({
       id: item.id,
@@ -1188,10 +2431,129 @@ export default function App() {
       image: item.image || "",
     }));
 
+    // Real M-Pesa STK push flow (Daraja)
+    if (paymentMethod === "mpesa") {
+      if (!isMpesaConfigured()) {
+        setPaying(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          checkout: "M-Pesa is not configured. Please contact support.",
+        }));
+        return;
+      }
+
+      const orderData = {
+        id: genRef(),
+        customer: form.name.trim(),
+        customerEmail: activeUser?.email || "",
+        phone: form.phone.trim(),
+        location: form.location.trim(),
+        product:
+          checkoutItemCount === 1
+            ? `${firstItem.brand} ${firstItem.name} ${firstItem.spec}`
+            : `${checkoutItemCount} items`,
+        grade:
+          checkoutItemCount === 1
+            ? GRADE_INFO[firstItem.grade]?.label || firstItem.grade
+            : "Mixed",
+        price: checkoutSubtotal,
+        discount: checkoutDiscount,
+        total: checkoutTotal,
+        itemCount: checkoutItemCount,
+        items: normalizedItems,
+        couponCode: appliedCoupon?.code || null,
+        notes: form.notes.trim(),
+        paymentMethod: "M-Pesa",
+        paymentStatus: "pending",
+        status: "pending_payment",
+      };
+
+      try {
+        const backendOrder = await createOrderInBackend(orderData);
+        void syncBackendOrders();
+
+        const mpesaResponse = await initiateMpesaPayment(orderData);
+        if (!mpesaResponse.success || !mpesaResponse.checkoutRequestId) {
+          throw new Error(mpesaResponse.error || "Failed to initialize M-Pesa STK push");
+        }
+
+        const pendingOrder = {
+          ...orderData,
+          ...(backendOrder || {}),
+          mpesaCheckoutRequestId: mpesaResponse.checkoutRequestId,
+          mpesaMerchantRequestId: mpesaResponse.merchantRequestId,
+          timestamp: Date.now(),
+          courierRef: "",
+        };
+
+        const pendingOrders = [pendingOrder, ...orders];
+        await storageApi.set(ORDERS_KEY, JSON.stringify(pendingOrders));
+        setOrders(pendingOrders);
+
+        let latestOrder = pendingOrder;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          const statusResponse = await checkMpesaPaymentStatus({
+            checkoutRequestId: mpesaResponse.checkoutRequestId,
+            reference: orderData.id,
+          });
+
+          if (!statusResponse.success || !statusResponse.order) {
+            continue;
+          }
+
+          latestOrder = {
+            ...latestOrder,
+            ...statusResponse.order,
+            id: statusResponse.order.reference || latestOrder.id,
+          };
+
+          const mergedOrders = pendingOrders.map((o) =>
+            o.id === pendingOrder.id ? latestOrder : o
+          );
+          setOrders(mergedOrders);
+          await storageApi.set(ORDERS_KEY, JSON.stringify(mergedOrders));
+
+          if (latestOrder.paymentStatus === "paid") {
+            setPaying(false);
+            setLastOrder(latestOrder);
+            if (!selected) clearCart();
+            setForm({ name: "", phone: "", location: "", notes: "" });
+            setPage("confirm");
+            return;
+          }
+
+          if (latestOrder.paymentStatus === "failed") {
+            setPaying(false);
+            setFormErrors((prev) => ({
+              ...prev,
+              checkout: "M-Pesa payment failed or was cancelled. Please try again.",
+            }));
+            return;
+          }
+        }
+
+        setPaying(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          checkout: `STK prompt sent. Approve payment on your phone, then track status with ${orderData.id}.`,
+        }));
+        return;
+      } catch (error) {
+        console.error("M-Pesa payment error:", error);
+        setPaying(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          checkout: "Failed to initiate M-Pesa STK push. Please try again.",
+        }));
+        return;
+      }
+    }
+
     const order = {
       id: genRef(),
       customer: form.name.trim(),
-      customerEmail: currentUser?.email || "",
+      customerEmail: activeUser?.email || "",
       phone: form.phone.trim(),
       location: form.location.trim(),
       notes: form.notes.trim(),
@@ -1213,8 +2575,15 @@ export default function App() {
       paymentStatus: "paid",
       paymentMethod: "M-Pesa",
       timestamp: Date.now(),
-      courierRef: "،"
+      courierRef: ""
     };
+
+    try {
+      await createOrderInBackend(order);
+      void syncBackendOrders();
+    } catch (error) {
+      console.warn("Order API unavailable, keeping local order fallback:", error);
+    }
 
     // Reduce stock quantities
     const updatedCatalog = catalog.map(product => {
@@ -1287,8 +2656,26 @@ export default function App() {
     return "confirmed";
   };
 
-  const trackOrder = () => {
-    const found = orders.find((o) => o.id.toLowerCase() === trackRef.trim().toLowerCase());
+  const trackOrder = async () => {
+    const normalizedRef = trackRef.trim().toUpperCase();
+    if (!normalizedRef) {
+      setTrackedOrder(null);
+      setTrackError("Enter an order reference.");
+      return;
+    }
+
+    try {
+      const order = await fetchTrackedOrderFromBackend(normalizedRef);
+      if (order) {
+        setTrackedOrder(order);
+        setTrackError("");
+        return;
+      }
+    } catch (error) {
+      console.warn("Tracking API unavailable, checking local orders:", error);
+    }
+
+    const found = orders.find((o) => o.id.toLowerCase() === normalizedRef.toLowerCase());
     if (found) {
       setTrackedOrder(found);
       setTrackError("");
@@ -1308,31 +2695,222 @@ export default function App() {
     setNewsletterEmail("");
   };
 
-  const openAuth = (mode = "signin") => {
-    setAuthMode(mode);
-    setAuthPanel("form");
-    setAuthStep("email");
+  const openAuth = async (mode = "signin") => {
+    // Ensure users always see auth choices instead of being silently reused.
+    try {
+      if (window.Clerk?.session && window.Clerk?.signOut) {
+        await window.Clerk.signOut();
+      }
+    } catch {
+      // Ignore sign-out errors and continue to auth screen.
+    }
+
     setAuthErrors({});
     setAuthMsg("");
+    setAuthMode(mode);
     setAuthForm({ name: "", email: "", password: "", confirmPassword: "" });
-    setResetForm({ password: "", confirmPassword: "" });
     setPage("auth");
   };
 
   const signOut = async () => {
     setCurrentUser(null);
+    setBackendOrders(null);
+    try {
+      if (window.Clerk?.signOut) {
+        await window.Clerk.signOut();
+      }
+    } catch {
+      // Continue with local/supabase sign-out cleanup.
+    }
     await authSignOut();
     setPage("home");
   };
 
-  const proceedToPassword = () => {
-    const email = authForm.email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setAuthErrors({ email: "Enter a valid email address." });
+  const saveProfileData = async (nextData, successMessage = "Profile saved.") => {
+    if (!activeUser?.email) {
+      setProfileMsg("Sign in to save profile changes.");
       return;
     }
-    setAuthErrors({});
-    setAuthStep("password");
+
+    setProfileSaving(true);
+    try {
+      const key = activeUser.email.toLowerCase();
+      const normalizedProfile = normalizeProfileData(nextData, activeUser);
+      const stored = await storageApi.get(PROFILES_KEY);
+      const allProfiles = stored?.value ? JSON.parse(stored.value) : {};
+      let persistedProfile = normalizedProfile;
+
+      try {
+        const backendProfile = await saveProfileToBackend(normalizedProfile);
+        if (backendProfile) {
+          persistedProfile = normalizeProfileData(backendProfile, activeUser);
+        }
+      } catch (error) {
+        console.warn("Profile API unavailable, saving locally:", error);
+      }
+
+      allProfiles[key] = {
+        ...persistedProfile,
+        email: activeUser.email,
+        cards: Array.isArray(persistedProfile.cards) ? persistedProfile.cards : [],
+      };
+      await storageApi.set(PROFILES_KEY, JSON.stringify(allProfiles));
+      setProfileData(allProfiles[key]);
+      setCurrentUser((prev) => (prev ? { ...prev, name: allProfiles[key].fullName || prev.name } : prev));
+      setProfileMsg(successMessage);
+    } catch {
+      setProfileMsg("We could not save your profile right now. Please try again.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleProfilePhotoUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setProfileMsg("Please select an image file for your profile picture.");
+      return;
+    }
+
+    if (file.size > 500 * 1024) {
+      setProfileMsg("Image must be under 500 KB. Please resize or choose a smaller photo.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setProfileData((prev) => ({ ...prev, profilePicture: String(reader.result || "") }));
+      setProfileMsg("Profile photo ready. Save profile to keep it.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const addProfileCard = () => {
+    const digits = cardDraft.number.replace(/\D/g, "");
+    if (cardDraft.holder.trim().length < 3) {
+      setProfileMsg("Card holder name is required.");
+      return;
+    }
+    if (digits.length < 12) {
+      setProfileMsg("Enter a valid card number.");
+      return;
+    }
+    if (!cardDraft.expMonth || !cardDraft.expYear) {
+      setProfileMsg("Card expiry month and year are required.");
+      return;
+    }
+
+    const card = {
+      id: `card-${Date.now()}`,
+      brand: detectCardBrand(digits),
+      holder: cardDraft.holder.trim(),
+      last4: digits.slice(-4),
+      expMonth: cardDraft.expMonth,
+      expYear: cardDraft.expYear,
+    };
+
+    setProfileData((prev) => ({
+      ...prev,
+      cards: [...(prev.cards || []), card],
+      defaultCardId: prev.defaultCardId || card.id,
+    }));
+    setCardDraft({ holder: "", number: "", expMonth: "", expYear: "" });
+    setProfileMsg("Card added. Save payment settings to keep it.");
+  };
+
+  const removeProfileCard = (cardId) => {
+    setProfileData((prev) => {
+      const remaining = (prev.cards || []).filter((c) => c.id !== cardId);
+      return {
+        ...prev,
+        cards: remaining,
+        defaultCardId: prev.defaultCardId === cardId ? (remaining[0]?.id || "") : prev.defaultCardId,
+      };
+    });
+    setProfileMsg("Card removed. Save payment settings to keep changes.");
+  };
+
+  const addProfileAddress = () => {
+    if (!addressDraft.label.trim() || !addressDraft.addressLine.trim() || !addressDraft.town.trim()) {
+      setProfileMsg("Add a label, town, and address line for the new address.");
+      return;
+    }
+
+    const nextAddress = {
+      ...createDefaultAddress(activeUser),
+      ...addressDraft,
+      id: `addr-${Date.now()}`,
+    };
+
+    setProfileData((prev) => {
+      const addresses = [...(prev.addresses || []), nextAddress];
+      return {
+        ...prev,
+        addresses,
+        defaultAddressId: prev.defaultAddressId || nextAddress.id,
+      };
+    });
+    setAddressDraft(createDefaultAddress(activeUser));
+    setProfileMsg("Address added. Save profile to keep it.");
+  };
+
+  const updateProfileAddress = (addressId, field, value) => {
+    setProfileData((prev) => {
+      const addresses = (prev.addresses || []).map((address) =>
+        address.id === addressId ? { ...address, [field]: value } : address
+      );
+      const defaultAddress = addresses.find((address) => address.id === prev.defaultAddressId) || addresses[0] || createDefaultAddress(activeUser);
+      return {
+        ...prev,
+        addresses,
+        county: defaultAddress.county || prev.county,
+        town: defaultAddress.town || prev.town,
+        addressLine: defaultAddress.addressLine || prev.addressLine,
+        landmark: defaultAddress.landmark || prev.landmark,
+      };
+    });
+  };
+
+  const setDefaultProfileAddress = (addressId) => {
+    setProfileData((prev) => {
+      const defaultAddress = (prev.addresses || []).find((address) => address.id === addressId);
+      if (!defaultAddress) return prev;
+      return {
+        ...prev,
+        defaultAddressId: addressId,
+        county: defaultAddress.county || prev.county,
+        town: defaultAddress.town || prev.town,
+        addressLine: defaultAddress.addressLine || prev.addressLine,
+        landmark: defaultAddress.landmark || prev.landmark,
+      };
+    });
+    setProfileMsg("Default address updated. Save profile to keep it.");
+  };
+
+  const removeProfileAddress = (addressId) => {
+    setProfileData((prev) => {
+      const remaining = (prev.addresses || []).filter((address) => address.id !== addressId);
+      const fallbackAddress = remaining[0] || createDefaultAddress(activeUser);
+      return {
+        ...prev,
+        addresses: remaining.length > 0 ? remaining : [fallbackAddress],
+        defaultAddressId: prev.defaultAddressId === addressId ? fallbackAddress.id : prev.defaultAddressId,
+        county: fallbackAddress.county || "Mombasa",
+        town: fallbackAddress.town || "",
+        addressLine: fallbackAddress.addressLine || "",
+        landmark: fallbackAddress.landmark || "",
+      };
+    });
+    setProfileMsg("Address removed. Save profile to keep changes.");
+  };
+
+  const openSecurityCenter = () => {
+    if (window.Clerk?.openUserProfile) {
+      window.Clerk.openUserProfile();
+      return;
+    }
+    setProfileMsg("Security settings are handled by Clerk and will open when available.");
   };
 
   const submitAuth = async () => {
@@ -1351,106 +2929,146 @@ export default function App() {
       return;
     }
 
+    if (!window.Clerk?.client) {
+      setAuthMsg("Authentication service is not ready. Please refresh the page.");
+      return;
+    }
+
     setAuthErrors({});
+    setAuthPending(true);
+    setAuthMsg("");
 
     try {
-      if (authMode === "signup") {
-        const created = await authSignUp({ name, email, password });
-        if (created.pendingConfirmation) {
-          setVerificationEmail(email);
-          setAuthPanel("verify");
-          setAuthMsg("Account created. Check your inbox to verify your email before signing in.");
-          return;
+      if (authMode === "signin") {
+        const result = await window.Clerk.client.signIn.create({ identifier: email, password });
+        if (result.status === "complete") {
+          await window.Clerk.setActive({ session: result.createdSessionId });
+          const cu = window.Clerk.user;
+          if (cu) {
+            setCurrentUser({
+              name: cu.firstName || cu.fullName || email.split("@")[0],
+              email: cu.primaryEmailAddress?.emailAddress || email,
+              isAdmin: Boolean(cu.publicMetadata?.isAdmin),
+            });
+          }
+          setPage("home");
+        } else {
+          setAuthMsg("Additional verification required. Please check your email.");
         }
-
-        setCurrentUser(created.user);
-        setAuthMsg("");
-        setPage("home");
-        return;
+      } else {
+        const [firstName, ...rest] = name.split(" ");
+        const result = await window.Clerk.client.signUp.create({
+          emailAddress: email,
+          password,
+          firstName,
+          lastName: rest.join(" ") || "",
+        });
+        if (result.status === "complete") {
+          await window.Clerk.setActive({ session: result.createdSessionId });
+          setCurrentUser({ name, email, isAdmin: false });
+          setPage("home");
+        } else {
+          setAuthMsg("Account created! Check your email to verify it, then sign in.");
+          setAuthMode("signin");
+          setAuthForm(prev => ({ ...prev, password: "", confirmPassword: "" }));
+        }
       }
-
-      const signedIn = await authSignIn({ email, password });
-      setCurrentUser(signedIn.user);
-      setAuthMsg("");
-      setPage("home");
     } catch (err) {
-      setAuthMsg(err?.message || "Authentication failed. Check your details or try again.");
+      const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Authentication failed. Please try again.";
+      setAuthMsg(msg);
+    } finally {
+      setAuthPending(false);
     }
   };
 
   const requestPasswordReset = async () => {
-    const email = recoveryEmail.trim().toLowerCase();
+    const email = authForm.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setAuthErrors({ email: "Enter a valid email address." });
+      setAuthErrors({ email: "Enter your email address first." });
       return;
     }
-
-    setAuthErrors({});
+    if (!window.Clerk?.client) {
+      setAuthMsg("Authentication service is not ready. Please refresh the page.");
+      return;
+    }
+    setAuthPending(true);
+    setAuthMsg("");
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
-      const result = await authRequestPasswordReset({ email, redirectTo });
-      if (result.provider === "local") {
-        setAuthMsg("Offline mode: reset requested. Continue below to set a new password.");
-        setAuthPanel("reset");
-        return;
-      }
-      setAuthMsg("Password reset email sent. Check your inbox and open the reset link.");
+      await window.Clerk.client.signIn.create({ strategy: "reset_password_email_code", identifier: email });
+      setAuthMsg("Password reset email sent - check your inbox and follow the link.");
     } catch (err) {
-      setAuthMsg(err?.message || "Unable to send reset email.");
+      const msg = err?.errors?.[0]?.message || err?.message || "Could not send reset email. Please try again.";
+      setAuthMsg(msg);
+    } finally {
+      setAuthPending(false);
     }
   };
 
-  const submitPasswordReset = async () => {
-    const password = resetForm.password;
-    if (password.length < 8) {
-      setAuthErrors({ password: "Use at least 8 characters." });
-      return;
-    }
-    if (password !== resetForm.confirmPassword) {
-      setAuthErrors({ confirmPassword: "Passwords do not match." });
+  const signInWithSocial = async (strategy) => {
+    if (!window.Clerk?.client?.signIn) {
+      setAuthMsg("Authentication service is not ready. Please refresh the page.");
       return;
     }
 
+    setAuthPending(true);
+    setAuthMsg("");
     setAuthErrors({});
+
     try {
-      await authUpdatePassword({ password });
-      setAuthPanel("form");
-      setAuthMode("signin");
-      setResetForm({ password: "", confirmPassword: "" });
-      setAuthMsg("Password updated. Sign in with your new password.");
+      await window.Clerk.client.signIn.authenticateWithRedirect({
+        strategy,
+        redirectUrl: `${window.location.origin}/auth?mode=${authMode}`,
+        redirectUrlComplete: `${window.location.origin}/`,
+      });
     } catch (err) {
-      setAuthMsg(err?.message || "Could not reset password.");
+      const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Social sign-in failed. Please try again.";
+      setAuthMsg(msg);
+      setAuthPending(false);
     }
   };
 
-  const resendVerification = async () => {
-    const email = verificationEmail.trim().toLowerCase() || authForm.email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setAuthErrors({ email: "Enter a valid email to resend verification." });
-      return;
-    }
-
-    setAuthErrors({});
+  const loadSystemStatus = async () => {
+    setSystemStatusLoading(true);
+    setSystemStatusError("");
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
-      const result = await authResendVerification({ email, redirectTo });
-      if (result.provider === "local") {
-        setAuthMsg("Offline mode does not send real verification emails. You can continue testing locally.");
-        return;
-      }
-      setAuthMsg("Verification email sent. Check your inbox.");
-    } catch (err) {
-      setAuthMsg(err?.message || "Could not resend verification email.");
-    }
-  };
+      const [healthRes, readyRes, preflightRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/health`, { headers: { Accept: "application/json" } }),
+        fetch(`${API_BASE_URL}/api/health/ready`, { headers: { Accept: "application/json" } }),
+        fetch(`${API_BASE_URL}/api/preflight`, { headers: { Accept: "application/json" } }),
+      ]);
 
-  const continueWithSocial = async (provider) => {
-    try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
-      await authSignInWithOAuth({ provider, redirectTo });
-      setAuthMsg(`Redirecting to ${provider === "google" ? "Google" : "Apple"}...`);
-    } catch (err) {
-      setAuthMsg(err?.message || "Social sign-in is not available right now.");
+      const [healthData, readyData, preflightData] = await Promise.all([
+        healthRes.json().catch(() => ({})),
+        readyRes.json().catch(() => ({})),
+        preflightRes.json().catch(() => ({})),
+      ]);
+      const checks = {
+        ...(healthData?.checks || {}),
+        ...(readyData?.checks || {}),
+        ...(preflightData?.checks || {}),
+      };
+
+      const preflightRows = Array.isArray(preflightData?.rows) ? preflightData.rows : [];
+      const missingKeys = Array.isArray(preflightData?.missingRequired)
+        ? preflightData.missingRequired
+        : Object.entries(checks)
+            .filter(([, ok]) => !ok)
+            .map(([key]) => key);
+
+      setSystemStatus({
+        apiOk: Boolean(healthRes.ok && healthData?.ok),
+        ready: Boolean(readyRes.ok && readyData?.ok && preflightData?.ok),
+        checks,
+        missingKeys,
+        preflightRows,
+        envMode: preflightData?.envMode || "auto",
+        message: readyData?.message || "",
+      });
+    } catch (error) {
+      setSystemStatus(null);
+      setSystemStatusError(error?.message || "Could not load backend status.");
+    } finally {
+      setSystemStatusLoading(false);
     }
   };
 
@@ -1472,6 +3090,10 @@ export default function App() {
       setPage("products");
       return;
     }
+    if (item === "About Nafuu Mart") {
+      setPage("about");
+      return;
+    }
     if (item === "Tech Journal") {
       openInfoPage("Tech Journal", "Weekly guides and market updates from the Nafuu team.", [
         "Best laptop picks by budget",
@@ -1483,16 +3105,16 @@ export default function App() {
 
     const docs = {
       "About Nafuu Mart": ["About Nafuu Mart", "Nafuu delivers authentic Nairobi market prices to Mombasa with full transparency and next-day delivery. We bridge the coast-capital price gap by sourcing direct from trusted Nairobi agents.", ["Buy-to-order ensures zero old stock", "Live photo approval before dispatch shows genuine condition", "Transparent grading: New (unopened), Grade A (original box, minimal use), Grade B (no box, full function)"]],
-      "Contact us": ["Contact us", "Reach the Nafuu Mombasa team Monday–Friday 8 AM–8 PM EAT. For urgent orders outside support hours, leave a message.", ["WhatsApp Business: +254 7XX XXX XXX (responds 30 mins)", "Email: support@nafuumart.co.ke", "In-app chat during support hours"]],
+      "Contact us": ["Contact us", "Reach the Nafuu Mombasa team Monday-Friday 8 AM-8 PM EAT. For urgent orders outside support hours, leave a message.", ["WhatsApp Business: +254 7XX XXX XXX (responds 30 mins)", "Email: support@nafuumart.co.ke", "In-app chat during support hours"]],
       "Help Center": ["Help Center", "Answers to Kenyan customer questions on M-Pesa payment, STK push, tracking, and returns.", ["Step 1: Search products and confirm specs. Step 2: Add to cart and check savings. Step 3: Proceed to checkout.", "Step 4: Enter name, phone (07X format), Mombasa location. Step 5: Approve M-Pesa STK, complete payment.", "Track with reference NFU-XXXXX. Once sourced (1-2h), you receive live photos. Approve, then dispatch same-day."]],
-      "Shipping": ["Shipping", "Mombasa-bound orders placed before 12 noon are dispatched same-day via Buscar courier. Doorstep delivery by next morning.", ["Nairobi stock confirmed by 1 PM same-day", "Overnight courier: freezer box + tracking number provided", "Mombasa delivery: 8 AM–2 PM next business day with customer contact"]],
+      "Shipping": ["Shipping", "Mombasa-bound orders placed before 12 noon are dispatched same-day via Buscar courier. Doorstep delivery by next morning.", ["Nairobi stock confirmed by 1 PM same-day", "Overnight courier: freezer box + tracking number provided", "Mombasa delivery: 8 AM-2 PM next business day with customer contact"]],
       "Returns and refunds": ["Returns and refunds", "If delivered item doesn't match the approval photos or condition, Nafuu issues a full refund within 2 business days.", ["Condition mismatch: Contact support within 24 hours with photos, full refund issued", "Wrong item (rare): Priority return and replacement at no cost", "Damage in transit: Documented before handover; Nafuu covers via courier insurance"]],
       "Terms of service": ["Nafuu Mart Terms of Service", "These Terms govern your use of Nafuu Mart's platform and purchase of products. By placing an order, you agree to these Terms, our Privacy Policy, and Kenya's Consumer Protection Act, 2012.", [
         "1. WHO WE ARE: Nafuu Mart Ltd operates an e-commerce platform connecting Mombasa buyers with Nairobi-sourced electronics at transparent prices. We are registered in Kenya and operate under Kenyan law.",
         "2. DEFINITIONS: 'Platform' means this website/app. 'Product(s)' means electronics listed for sale. 'Buyer' means any person 18+ ordering for personal use. 'Order' means confirmed purchase after M-Pesa payment.",
         "3. ACCEPTANCE: By using Nafuu, you confirm you are 18+, have legal capacity to contract, accept these Terms, and will provide accurate information (name, phone, delivery address).",
         "4. SERVICES WE OFFER: Product sourcing from Nairobi agents, live photo approval before dispatch, M-Pesa payment processing, overnight courier delivery to Mombasa, order tracking, customer support Mon-Fri 8AM-8PM EAT.",
-        "5. HOW TO ORDER: Browse products → Add to cart → Enter delivery details → Pay via M-Pesa STK push. We source within 1-2 hours, send live photos for approval, then dispatch same-day if confirmed before 12 noon.",
+        "5. HOW TO ORDER: Browse products -> Add to cart -> Enter delivery details -> Pay via M-Pesa STK push. We source within 1-2 hours, send live photos for approval, then dispatch same-day if confirmed before 12 noon.",
         "6. PAYMENT TERMS: Full upfront payment required via M-Pesa. No cash-on-delivery. Payment authorization held until we confirm stock availability. If item unavailable within 24 hours, full refund issued automatically.",
         "7. DELIVERY: Orders confirmed before 12 noon dispatch same-day via Buscar courier. Delivery next business day 8AM-2PM to your Mombasa address. You must be available to receive or designate someone. Risk passes to you upon delivery.",
         "8. PRICING: All prices in KES, inclusive of VAT where applicable. Prices may change without notice but confirmed orders honor the agreed price. We reserve right to cancel orders with obvious pricing errors and provide full refund.",
@@ -1609,6 +3231,7 @@ export default function App() {
 
   const Nav = () => {
     const compact = viewportWidth < 900;
+    const hasActiveSession = Boolean(activeUser?.email || window.Clerk?.user?.id);
     const rail = [
       { key: "hot", label: "Great Deals", action: () => { setCategory("all"); setSortBy("saving"); setPage("products"); } },
       ...CATEGORIES.filter((c) => c.key !== "all").map((c) => ({
@@ -1616,13 +3239,23 @@ export default function App() {
         label: c.label,
         action: () => { setCategory(c.key); setPage("products"); },
       })),
-      ...(currentUser?.isAdmin ? [{ key: "admin", label: "Admin", action: () => setPage("admin") }] : []),
-      ...(currentUser ? [{ key: "my-orders", label: "My Orders", action: () => setPage("my-orders") }] : []),
+      ...(activeUser?.isAdmin ? [{ key: "admin", label: "Admin", action: () => setPage("admin") }] : []),
+      ...(activeUser ? [{ key: "my-orders", label: "My Orders", action: () => setPage("my-orders") }] : []),
+      ...(activeUser ? [{ key: "profile", label: "Profile", action: () => setPage("profile") }] : []),
+      { key: "blog", label: "Tech Journal", action: () => setPage("blog") },
+      { key: "support", label: "Customer Care", action: () => { setPage("track"); setTrackedOrder(null); } },
       { key: "track", label: "Track Order", action: () => { setPage("track"); setTrackedOrder(null); } },
     ];
 
     return (
       <nav style={{ position: "sticky", top: 0, zIndex: 120, background: "rgba(247,247,242,.96)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--line)" }}>
+        {clerkModeMisconfigured && (
+          <div style={{ background: "#fff4e5", borderBottom: "1px solid #f5d6a5" }}>
+            <div style={{ maxWidth: 1240, margin: "0 auto", padding: "8px 20px", color: "#8a5a00", fontSize: 12, fontWeight: 700 }}>
+              Clerk mode is enabled but VITE_CLERK_PUBLISHABLE_KEY is missing. Add it to your env to restore sign-in.
+            </div>
+          </div>
+        )}
         {!compact && (
           <div style={{ borderBottom: "1px solid var(--line)", background: "#f5f5f3" }}>
             <div style={{ maxWidth: 1240, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40, padding: "0 20px" }}>
@@ -1630,9 +3263,9 @@ export default function App() {
                 <button onClick={() => setPage("home")} style={topLink}>The Nafuu Promise</button>
                 <button onClick={() => { setPage("products"); setSearch("warranty"); }} style={topLink}>Repair & Care</button>
                 <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={topLink}>End Fast Tech</button>
-                <button onClick={() => setPage("products")} style={topLink}>Tech Journal</button>
+                <button onClick={() => setPage("blog")} style={topLink}>Tech Journal</button>
               </div>
-              <button style={{ ...topLink, fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>🇰🇪 KE</button>
+              <button style={{ ...topLink, fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>KSH KE</button>
             </div>
           </div>
         )}
@@ -1676,16 +3309,30 @@ export default function App() {
             </form>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", justifySelf: compact ? "start" : "end", position: "relative" }}>
-              {currentUser?.isAdmin && <button onClick={() => setPage("admin")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Admin</button>}
-              {currentUser && <button onClick={() => setPage("my-orders")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>My Orders</button>}
+              {activeUser?.isAdmin && <button onClick={() => setPage("admin")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Admin</button>}
+              {hasActiveSession && <button onClick={() => setPage("my-orders")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>My Orders</button>}
+              {hasActiveSession && <button onClick={() => setPage("profile")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Profile</button>}
+              <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Deals</button>
               <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={actionBtn}>Trade-in</button>
               <button onClick={() => { setPage("track"); setTrackedOrder(null); }} style={{ ...actionBtn, display: compact ? "none" : "flex", alignItems: "center", gap: 6 }}>Need help?</button>
-              {currentUser && <button onClick={signOut} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Sign out</button>}
-              <button onClick={() => openAuth(currentUser ? "signin" : "signup")} style={iconBtn} title={currentUser ? currentUser.email : "Sign in / Sign up"}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="8" r="4"/>
-                  <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-                </svg>
+              <button
+                onClick={hasActiveSession ? signOut : () => openAuth("signin")}
+                style={{ ...iconBtn, minWidth: 44, minHeight: 44 }}
+                title={hasActiveSession ? "Sign out" : "Sign in"}
+                aria-label={hasActiveSession ? "Sign out" : "Sign in"}
+              >
+                {hasActiveSession ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16 17 21 12 16 7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="8" r="4"/>
+                    <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                  </svg>
+                )}
               </button>
               <button onClick={() => setPage("wishlist")} style={{ ...iconBtn, position: "relative" }} title="Wishlist">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1698,7 +3345,7 @@ export default function App() {
                 )}
               </button>
               <button onClick={() => setPage("compare")} style={{ ...iconBtn, position: "relative" }} title="Compare Products">
-                <span>⚖️</span>
+                <span>CMP</span>
                 {compareList.length > 0 && (
                   <span style={{ position: "absolute", top: -4, right: -4, background: "var(--green)", color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 700, minWidth: 18, height: 18, display: "grid", placeItems: "center", padding: "0 5px" }}>
                     {compareList.length}
@@ -1746,7 +3393,7 @@ export default function App() {
               >
                 <button style={{ ...topNavItem, display: "flex", alignItems: "center", gap: 6 }}>
                   Browse categories
-                  <span style={{ fontSize: 10, transform: categoryDropdown ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}>▼</span>
+                  <span style={{ fontSize: 10, transform: categoryDropdown ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}>v</span>
                 </button>
                 {categoryDropdown && (
                   <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: 16, width: compact ? 330 : 560, boxShadow: "0 14px 34px rgba(0,0,0,.14)", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2,minmax(0,1fr))", gap: 10 }}>
@@ -1800,7 +3447,7 @@ export default function App() {
                   placeholder="Email"
                   style={{ flex: 1, border: "none", outline: "none", fontSize: viewportWidth < 640 ? 16 : 18, background: "transparent" }}
                 />
-                <span style={{ fontSize: 20, color: "#6f6f6f" }}>✉</span>
+                <span style={{ fontSize: 20, color: "#6f6f6f" }}>@</span>
               </div>
               <button onClick={handleNewsletterSignup} style={{ background: "#3d3d3d", color: "#fff", border: "none", borderRadius: 12, padding: "0 22px", height: 64, fontWeight: 700, fontSize: viewportWidth < 640 ? 14 : 15, cursor: "pointer" }}>
                 Sign up
@@ -1824,18 +3471,13 @@ export default function App() {
               "Trustpilot",
             ].map((item) => <button key={item} onClick={() => handleFooterLink(item)} style={footerLink}>{item}</button>)}
             <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-              {[
-                { key: "instagram", icon: "📷", label: "Instagram" },
-                { key: "tiktok", icon: "♪", label: "TikTok" },
-                { key: "youtube", icon: "▶", label: "YouTube" },
-                { key: "linkedin", icon: "in", label: "LinkedIn" },
-                { key: "facebook", icon: "f", label: "Facebook" },
-                { key: "twitter", icon: "𝕏", label: "X/Twitter" }
-              ].map((s) => (
-                <button 
-                  key={s.key} 
-                  onClick={() => handleFooterLink("Contact us")} 
-                  title={s.label}
+              {Object.entries(SOCIAL_PLATFORMS).map(([key, social]) => (
+                <a 
+                  key={key} 
+                  href={social.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={social.name}
                   style={{ 
                     width: 36, 
                     height: 36, 
@@ -1848,20 +3490,23 @@ export default function App() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: s.icon.length === 1 ? 16 : 18,
+                    fontSize: social.icon.length === 1 ? 16 : 18,
+                    textDecoration: "none",
                     transition: "all .2s ease"
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "#f5f5f5";
                     e.currentTarget.style.borderColor = "#999";
+                    e.currentTarget.style.color = social.color || "#5d5d5d";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "#fff";
                     e.currentTarget.style.borderColor = "#bdbdbd";
+                    e.currentTarget.style.color = "#5d5d5d";
                   }}
                 >
-                  {s.icon}
-                </button>
+                  {social.icon}
+                </a>
               ))}
             </div>
           </div>
@@ -1928,6 +3573,8 @@ export default function App() {
   if (page === "home") {
     return (
       <>
+        <PageMeta page="home" />
+        <LocalBusinessMeta />
         <style>{G}</style>
         {Nav()}
         <section style={{ color: "var(--ink)", minHeight: 420, display: "flex", alignItems: "center", background: "linear-gradient(135deg, #e8f8ed 0%, #f0f7ff 50%, #fff9f5 100%)", position: "relative" }}>
@@ -1935,7 +3582,7 @@ export default function App() {
           <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 24px", width: "100%", opacity: heroVisible ? 1 : 0, transform: heroVisible ? "none" : "translateY(20px)", transition: "all .7s ease", display: "grid", gridTemplateColumns: viewportWidth < 960 ? "1fr" : "1fr 1fr", gap: 40, alignItems: "center", position: "relative", zIndex: 1 }}>
             {/* Left Content */}
             <div>
-              <div style={{ display: "inline-flex", marginBottom: 14, borderRadius: 999, border: "1px solid var(--line)", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(10px)", padding: "8px 14px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--accent-dark)" }}>🚀 Nairobi Prices to Mombasa</div>
+              <div style={{ display: "inline-flex", marginBottom: 14, borderRadius: 999, border: "1px solid var(--line)", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(10px)", padding: "8px 14px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--accent-dark)" }}>Nairobi Prices to Mombasa</div>
               <h1 style={{ fontFamily: "'Fraunces',serif", fontSize: "clamp(32px,6vw,56px)", lineHeight: 1.1, marginBottom: 14, color: "#3d3d3d", fontWeight: 900 }}>Big savings,<br/>zero surprises.</h1>
               <p style={{ maxWidth: 540, color: "#5a5a5a", fontSize: 18, lineHeight: 1.7, marginBottom: 22 }}>The Nairobi price gap, closed. We source, inspect, and deliver to your Mombasa door with live photo approval and guaranteed next-day arrival.</p>
               
@@ -1972,15 +3619,15 @@ export default function App() {
                 <div style={{ fontSize: 14, fontWeight: 700, opacity: 0.9, marginBottom: 8 }}>AVERAGE SAVINGS</div>
                 <div style={{ fontFamily: "'Fraunces',serif", fontSize: 48, fontWeight: 900, marginBottom: 4 }}>KES 18,400</div>
                 <div style={{ fontSize: 14, opacity: 0.95 }}>Per device vs Mombasa retail</div>
-                <div style={{ fontSize: 12, marginTop: 16, opacity: 0.8, borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: 12 }}>✓ 5,200+ happy customers<br/>✓ Average 42% price drop<br/>✓ Next-day delivery</div>
+                <div style={{ fontSize: 12, marginTop: 16, opacity: 0.8, borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: 12 }}>* 5,200+ happy customers<br/>* Average 42% price drop<br/>* Next-day delivery</div>
               </div>
 
               {/* Trust Badges */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {[
-                  { icon: "✓", label: "100-point checks", text: "Every device", color: "#f0f7ff" },
-                  { icon: "↩️", label: "30-day returns", text: "No questions", color: "#fef9f0" },
-                  { icon: "📸", label: "Live photos", text: "Before dispatch", color: "#f5f9f0" },
+                  { icon: "CHK", label: "100-point checks", text: "Every device", color: "#f0f7ff" },
+                  { icon: "RET", label: "30-day returns", text: "No questions", color: "#fef9f0" },
+                  { icon: "IMG", label: "Live photos", text: "Before dispatch", color: "#f5f9f0" },
                   { icon: "⏱️", label: "Next-day delivery", text: "To your door", color: "#fffaf5" },
                 ].map((badge, i) => (
                   <div key={badge.label} style={{ background: badge.color, borderRadius: 14, padding: "16px 12px", textAlign: "center", animation: `fadeUp .7s ${.3 + i * 0.08}s both` }}>
@@ -2042,7 +3689,7 @@ export default function App() {
                     alignItems: "center",
                     gap: 4
                   }}>
-                    Browse {categoryCount(cat.key)} products →
+                    Browse {categoryCount(cat.key)} products
                   </div>
                 </button>
               ))}
@@ -2103,7 +3750,7 @@ export default function App() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 14 }}>
               {TESTIMONIALS.map((t, i) => (
                 <article key={t.name} style={{ ...panel, animation: `fadeUp .45s ${i * 0.08}s both` }}>
-                  <div style={{ color: "#f1b400", marginBottom: 8 }}>★★★★★</div>
+                  <div style={{ color: "#f1b400", marginBottom: 8 }}>*****</div>
                   <p style={{ ...pMuted, marginBottom: 10 }}>{t.quote}</p>
                   <div style={{ fontWeight: 700 }}>{t.name}</div>
                   <div style={{ color: "var(--muted)", fontSize: 12 }}>{t.item}</div>
@@ -2129,9 +3776,138 @@ export default function App() {
     );
   }
 
+  if (page === "about") {
+    return (
+      <>
+        <PageMeta page="home" additionalMeta={{ keywords: "about nafuu mart, refurbished electronics kenya, trusted seller nairobi mombasa" }} />
+        <LocalBusinessMeta />
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 980, margin: "0 auto", padding: "36px 24px" }}>
+          <button onClick={() => setPage("home")} style={linkBtn}>Back</button>
+          
+          {/* About Hero */}
+          <div style={{ background: "linear-gradient(135deg, #f5f5f5 0%, #efefef 100%)", borderRadius: 16, padding: "48px 32px", marginBottom: 32, textAlign: "center" }}>
+            <h1 style={{ fontSize: viewportWidth < 640 ? 28 : 40, fontFamily: "'Fraunces',serif", fontWeight: 900, color: "#1f1f1f", marginBottom: 16 }}>About Nafuu Mart</h1>
+            <p style={{ fontSize: 16, color: "#5a5a5a", maxWidth: 600, margin: "0 auto", lineHeight: 1.7 }}>
+              Connecting Mombasa buyers with Nairobi-priced refurbished electronics since 2024. We deliver transparency, quality, and trust.
+            </p>
+          </div>
+
+          {/* Mission & Values */}
+          <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 640 ? "1fr" : "1fr 1fr", gap: 24, marginBottom: 32 }}>
+            <div style={panel}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f1f1f", marginBottom: 12 }}>Our Mission</h2>
+              <p style={{ color: "#5a5a5a", lineHeight: 1.8, fontSize: 15 }}>
+                To bridge the Nairobi-Mombasa price gap by delivering authentic refurbished electronics at transparent, market-driven prices. Every device undergoes rigorous quality testing and comes with warranty assurance.
+              </p>
+            </div>
+            <div style={panel}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f1f1f", marginBottom: 12 }}>Core Values</h2>
+              <ul style={{ color: "#5a5a5a", lineHeight: 1.8, fontSize: 15, paddingLeft: 20 }}>
+                <li><strong>Transparency:</strong> No hidden fees or surprises</li>
+                <li><strong>Quality:</strong> Every device professionally graded</li>
+                <li><strong>Trust:</strong> Live photo approval before shipment</li>
+                <li><strong>Speed:</strong> Next-day delivery within Kenya</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Team & Certifications */}
+          <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 640 ? "1fr" : "1fr 1fr", gap: 24, marginBottom: 32 }}>
+            <div style={panel}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f1f1f", marginBottom: 12 }}>Our Team</h2>
+              <p style={{ color: "#5a5a5a", lineHeight: 1.8, fontSize: 15, marginBottom: 12 }}>
+                Founded by electronics enthusiasts who saw an opportunity to bring fair pricing and quality refurbished tech to coastal Kenya. Our team brings 50+ years of combined experience in tech retail and logistics.
+              </p>
+              <p style={{ color: "#5a5a5a", lineHeight: 1.8, fontSize: 15 }}>
+                Available via WhatsApp, email, and in-app chat during business hours (Mon�?"Fri 8 AM�?"8 PM EAT).
+              </p>
+            </div>
+            <div style={panel}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f1f1f", marginBottom: 12 }}>Certifications</h2>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
+                {["KEBS Certified", "CAK Approved", "BRS Registered"].map((cert) => (
+                  <div key={cert} style={{ border: "2px solid #1f1f1f", borderRadius: 8, padding: "12px 16px", textAlign: "center", background: "#fff", fontWeight: 700, fontSize: 12, flex: "0 1 calc(33.33% - 11px)" }}>
+                    {cert}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Social & Contact */}
+          <div style={panel}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1f1f1f", marginBottom: 20 }}>Connect With Us</h2>
+            <p style={{ color: "#5a5a5a", marginBottom: 24, lineHeight: 1.7 }}>
+              Follow Nafuu Mart on social media for weekly deals, tech tips, and Mombasa delivery updates.
+            </p>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16 }}>
+              {Object.entries(SOCIAL_PLATFORMS).map(([key, social]) => (
+                <a 
+                  key={key}
+                  href={social.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "14px 16px",
+                    border: `2px solid ${social.color}`,
+                    borderRadius: 8,
+                    background: "#fff",
+                    textDecoration: "none",
+                    color: social.color,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    transition: "all 0.2s ease",
+                    cursor: "pointer"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = social.color;
+                    e.currentTarget.style.color = "#fff";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#fff";
+                    e.currentTarget.style.color = social.color;
+                  }}
+                >
+                  <span style={{ fontSize: 18 }}>{social.icon}</span>
+                  <span>{social.name}</span>
+                </a>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid #e5e5e5" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#1f1f1f", marginBottom: 16 }}>Direct Contact</h3>
+              <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 640 ? "1fr" : "repeat(3, 1fr)", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#999", textTransform: "uppercase", marginBottom: 6 }}>WhatsApp</div>
+                  <a href="https://wa.me/254712345678" style={{ fontSize: 15, fontWeight: 700, color: "#1f1f1f", textDecoration: "underline" }}>+254 712 345 678</a>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#999", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
+                  <a href="mailto:info@nafuumart.co.ke" style={{ fontSize: 15, fontWeight: 700, color: "#1f1f1f", textDecoration: "underline" }}>info@nafuumart.co.ke</a>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#999", textTransform: "uppercase", marginBottom: 6 }}>Location</div>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#1f1f1f" }}>Nairobi HQ, Mombasa Operations</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
   if (page === "products") {
     return (
       <>
+        <PageMeta page="products" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
@@ -2153,6 +3929,34 @@ export default function App() {
                   ))}
                 </div>
 
+                {category !== "all" && subdivisionOptions.length > 0 && (
+                  <>
+                    <label style={filterLabel}>Subdivision</label>
+                    <div style={chipWrap}>
+                      <button onClick={() => setBrandSubdivision("all")} style={chipBtn(brandSubdivision === "all")}>All Brands</button>
+                      {subdivisionOptions.map((brand) => (
+                        <button key={brand} onClick={() => setBrandSubdivision(brand)} style={chipBtn(brandSubdivision === brand)}>
+                          {brand}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {category !== "all" && modelSubdivisionOptions.length > 0 && (
+                  <>
+                    <label style={filterLabel}>Model Family</label>
+                    <div style={chipWrap}>
+                      <button onClick={() => setModelSubdivision("all")} style={chipBtn(modelSubdivision === "all")}>All Models</button>
+                      {modelSubdivisionOptions.map((family) => (
+                        <button key={family} onClick={() => setModelSubdivision(family)} style={chipBtn(modelSubdivision === family)}>
+                          {family}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
                 <label style={filterLabel}>Grade</label>
                 <div style={chipWrap}>
                   {["all", "New", "A", "B"].map((g) => (
@@ -2173,6 +3977,8 @@ export default function App() {
                 <button
                   onClick={() => {
                     setCategory("all");
+                    setBrandSubdivision("all");
+                    setModelSubdivision("all");
                     setGradeFilter("all");
                     setPriceBand("all");
                     setSortBy("featured");
@@ -2200,6 +4006,34 @@ export default function App() {
                       <button key={c.key} onClick={() => setCategory(c.key)} style={chipBtn(category === c.key)}>{c.label}</button>
                     ))}
                   </div>
+
+                  {category !== "all" && subdivisionOptions.length > 0 && (
+                    <>
+                      <label style={filterLabel}>Subdivision</label>
+                      <div style={chipWrap}>
+                        <button onClick={() => setBrandSubdivision("all")} style={chipBtn(brandSubdivision === "all")}>All Brands</button>
+                        {subdivisionOptions.map((brand) => (
+                          <button key={brand} onClick={() => setBrandSubdivision(brand)} style={chipBtn(brandSubdivision === brand)}>
+                            {brand}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {category !== "all" && modelSubdivisionOptions.length > 0 && (
+                    <>
+                      <label style={filterLabel}>Model Family</label>
+                      <div style={chipWrap}>
+                        <button onClick={() => setModelSubdivision("all")} style={chipBtn(modelSubdivision === "all")}>All Models</button>
+                        {modelSubdivisionOptions.map((family) => (
+                          <button key={family} onClick={() => setModelSubdivision(family)} style={chipBtn(modelSubdivision === family)}>
+                            {family}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
                   <label style={filterLabel}>Grade</label>
                   <div style={chipWrap}>
@@ -2233,6 +4067,8 @@ export default function App() {
                     <button
                       onClick={() => {
                         setCategory("all");
+                        setBrandSubdivision("all");
+                        setModelSubdivision("all");
                         setGradeFilter("all");
                         setPriceBand("all");
                         setSortBy("featured");
@@ -2265,6 +4101,94 @@ export default function App() {
                     </select>
                   )}
                 </div>
+                {category !== "all" && subdivisionOptions.length > 0 && (
+                  <div style={{ marginTop: 12, padding: "12px 10px", border: "1px solid var(--line)", borderRadius: 10, background: "#fbfbfa" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                      {activeCategoryLabel} Subdivision
+                    </div>
+                    <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+                      <button
+                        onClick={() => setBrandSubdivision("all")}
+                        style={{
+                          border: brandSubdivision === "all" ? "1px solid var(--ink)" : "1px solid var(--line)",
+                          background: brandSubdivision === "all" ? "var(--ink)" : "#fff",
+                          color: brandSubdivision === "all" ? "#fff" : "var(--ink)",
+                          borderRadius: 999,
+                          padding: "8px 12px",
+                          fontWeight: 700,
+                          fontSize: 12,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        All {activeCategoryLabel}
+                      </button>
+                      {subdivisionOptions.map((brand) => (
+                        <button
+                          key={brand}
+                          onClick={() => setBrandSubdivision(brand)}
+                          style={{
+                            border: brandSubdivision === brand ? "1px solid var(--ink)" : "1px solid var(--line)",
+                            background: brandSubdivision === brand ? "var(--ink)" : "#fff",
+                            color: brandSubdivision === brand ? "#fff" : "var(--ink)",
+                            borderRadius: 999,
+                            padding: "8px 12px",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {brand} ({subdivisionCount(brand)})
+                        </button>
+                      ))}
+                    </div>
+                    {modelSubdivisionOptions.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 12, marginBottom: 8 }}>
+                          {brandSubdivision === "all" ? "Model Families" : `${brandSubdivision} Model Families`}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+                          <button
+                            onClick={() => setModelSubdivision("all")}
+                            style={{
+                              border: modelSubdivision === "all" ? "1px solid var(--ink)" : "1px solid var(--line)",
+                              background: modelSubdivision === "all" ? "var(--ink)" : "#fff",
+                              color: modelSubdivision === "all" ? "#fff" : "var(--ink)",
+                              borderRadius: 999,
+                              padding: "8px 12px",
+                              fontWeight: 700,
+                              fontSize: 12,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            All Families
+                          </button>
+                          {modelSubdivisionOptions.map((family) => (
+                            <button
+                              key={family}
+                              onClick={() => setModelSubdivision(family)}
+                              style={{
+                                border: modelSubdivision === family ? "1px solid var(--ink)" : "1px solid var(--line)",
+                                background: modelSubdivision === family ? "var(--ink)" : "#fff",
+                                color: modelSubdivision === family ? "#fff" : "var(--ink)",
+                                borderRadius: 999,
+                                padding: "8px 12px",
+                                fontWeight: 700,
+                                fontSize: 12,
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {family} ({modelSubdivisionCount(family)})
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <p style={{ color: "var(--muted)", marginTop: 10, fontSize: 13 }}>{sortedFiltered.length} matching products</p>
               </div>
 
@@ -2309,6 +4233,9 @@ export default function App() {
     const avgRating = (productReviews.reduce((sum, r) => sum + r.rating, 0) / productReviews.length).toFixed(1);
     return (
       <>
+        <ProductMeta product={selected} />
+        <PageMeta page="products" productName={`${selected.brand} ${selected.name}`} additionalMeta={{ keywords: generateKeywords(selected) }} />
+        <FAQMeta productName={`${selected.brand} ${selected.name}`} />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 980, margin: "0 auto", padding: "36px 24px" }}>
@@ -2386,18 +4313,93 @@ export default function App() {
             </div>
           </div>
 
+          {/* Social Share Section */}
+          <div style={{ marginTop: 24, padding: 16, background: "#f9f9f8", borderRadius: 12, border: "1px solid #e5e5e5" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#5a5a5a", textTransform: "uppercase", letterSpacing: 0.5 }}>Share this product:</span>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {(() => {
+                  const productUrl = `https://nafuu-mart.com/products/${selected.id}`;
+                  const shareTitle = `${selected.brand} ${selected.name} - Refurbished Electronics`;
+                  const shareLinks = generateShareLinks(shareTitle, productUrl, selected.image);
+                  
+                  return (
+                    <>
+                      <a 
+                        href={shareLinks.facebook}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        title="Share on Facebook"
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, textDecoration: "none", color: SOCIAL_PLATFORMS.facebook.color, fontWeight: 700, transition: "all 0.2s ease" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.facebook.color; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.facebook.color; }}
+                      >
+                        f
+                      </a>
+                      <a 
+                        href={shareLinks.twitter}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        title="Share on X/Twitter"
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, textDecoration: "none", color: "#000", fontWeight: 700, transition: "all 0.2s ease" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#000"; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#000"; }}
+                      >
+                        �.�
+                      </a>
+                      <a 
+                        href={shareLinks.linkedin}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        title="Share on LinkedIn"
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, textDecoration: "none", color: SOCIAL_PLATFORMS.linkedin.color, fontWeight: 700, transition: "all 0.2s ease" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.linkedin.color; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.linkedin.color; }}
+                      >
+                        in
+                      </a>
+                      <a 
+                        href={shareLinks.whatsapp}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        title="Share on WhatsApp"
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, textDecoration: "none", color: SOCIAL_PLATFORMS.whatsapp.color, fontWeight: 700, transition: "all 0.2s ease" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.whatsapp.color; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.whatsapp.color; }}
+                      >
+                        �Y'�
+                      </a>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(productUrl);
+                          alert("Product link copied to clipboard!");
+                        }}
+                        title="Copy link"
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, color: "#666", fontWeight: 700, transition: "all 0.2s ease" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#666"; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#666"; }}
+                      >
+                        �Y"-
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
           <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: viewportWidth < 960 ? "1fr" : "1fr 1fr", gap: 16 }}>
             <div style={panel}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h3 style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>Customer Reviews</h3>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>★ {avgRating} ({productReviews.length})</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>�~. {avgRating} ({productReviews.length})</div>
               </div>
               <div style={{ display: "grid", gap: 10 }}>
                 {productReviews.map((r) => (
                   <div key={r.name} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                       <strong style={{ color: "var(--ink)", fontSize: 13 }}>{r.name}</strong>
-                      <span style={{ color: "#f1b400", fontSize: 12 }}>{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</span>
+                      <span style={{ color: "#f1b400", fontSize: 12 }}>{"�~.".repeat(r.rating)}{"�~?".repeat(5 - r.rating)}</span>
                     </div>
                     <p style={{ color: "var(--text-mid)", fontSize: 13, lineHeight: 1.6 }}>{r.text}</p>
                   </div>
@@ -2415,7 +4417,7 @@ export default function App() {
                       style={{ width: "100%", textAlign: "left", border: "none", background: "#fff", color: "var(--ink)", padding: "12px 14px", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
                     >
                       <span>{faq.q}</span>
-                      <span style={{ fontSize: 12 }}>{openProductFaq === idx ? "−" : "+"}</span>
+                      <span style={{ fontSize: 12 }}>{openProductFaq === idx ? "�^'" : "+"}</span>
                     </button>
                     {openProductFaq === idx && (
                       <div style={{ borderTop: "1px solid var(--line)", background: "#fafaf9", padding: "10px 14px", color: "var(--text-mid)", fontSize: 13, lineHeight: 1.6 }}>
@@ -2466,11 +4468,12 @@ export default function App() {
     
     return (
       <>
+        <PageMeta page="checkout" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
           <button onClick={() => setPage(selected ? "product" : "cart")} style={linkBtn}>
-            {selected ? "← Back to product" : "← Back to cart"}
+            {selected ? "�?� Back to product" : "�?� Back to cart"}
           </button>
           
           <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 380px", gap: 32, marginTop: 24 }}>
@@ -2556,14 +4559,14 @@ export default function App() {
                 {appliedCoupon && (
                   <div style={{ marginTop: 12, padding: 10, background: "#f0fdf4", border: "1px solid var(--green)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>✓ {appliedCoupon.code}</div>
-                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{appliedCoupon.label} applied • Save KSh {fmt(checkoutDiscount)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>�o" {appliedCoupon.code}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{appliedCoupon.label} applied �?� Save KSh {fmt(checkoutDiscount)}</div>
                     </div>
                     <button
                       onClick={removeCoupon}
                       style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}
                     >
-                      ×
+                      �-
                     </button>
                   </div>
                 )}
@@ -2613,7 +4616,7 @@ export default function App() {
                   onClick={() => setPaymentMethod("pesapal")}
                   style={{ width: "100%", border: `2px solid ${paymentMethod === "pesapal" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "pesapal" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "all 0.2s" }}
                 >
-                  <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>💳</div>
+                  <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>�Y'�</div>
                   <div style={{ flex: 1, textAlign: "left" }}>
                     <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Pesapal (Cards + Airtel)</div>
                     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Visa, Mastercard, Airtel Money via Pesapal</div>
@@ -2656,9 +4659,9 @@ export default function App() {
                     <div key={item.id} style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #ecece7" }}>
                       <div style={{ width: 60, height: 60, background: "#f5f5f0", borderRadius: 8, overflow: "hidden", display: "grid", placeItems: "center", fontSize: 24, flexShrink: 0 }}>
                         {item.image ? (
-                          <img loading="lazy" src={item.image} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; e.target.parentElement.textContent = "📦"; }} />
+                          <img loading="lazy" src={item.image} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; e.target.parentElement.textContent = "IMG"; }} />
                         ) : (
-                          "📦"
+                          "IMG"
                         )}
                       </div>
                       <div style={{ flex: 1 }}>
@@ -2706,9 +4709,9 @@ export default function App() {
               {/* Trust Badges */}
               <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
                 {[
-                  { icon: "✓", text: "100-point checks" },
-                  { icon: "↩️", text: "30-day returns" },
-                  { icon: "📸", text: "Live photos before dispatch" },
+                  { icon: "CHK", text: "100-point checks" },
+                  { icon: "RET", text: "30-day returns" },
+                  { icon: "IMG", text: "Live photos before dispatch" },
                 ].map((badge) => (
                   <div key={badge.text} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-soft)" }}>
                     <span style={{ fontSize: 16 }}>{badge.icon}</span>
@@ -2727,6 +4730,7 @@ export default function App() {
   if (page === "cart") {
     return (
       <>
+        <PageMeta page="cart" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
@@ -2737,7 +4741,7 @@ export default function App() {
 
           {cart.length === 0 ? (
             <div style={{ ...panel, marginTop: 32, textAlign: "center", padding: "60px 24px" }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>🛒</div>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>CART</div>
               <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "var(--ink)" }}>Your cart is empty</h3>
               <p style={{ color: "var(--muted)", marginBottom: 24 }}>Add some products to get started!</p>
               <button onClick={() => setPage("products")} style={solidBtn}>
@@ -2776,7 +4780,7 @@ export default function App() {
                             onClick={() => updateCartQuantity(item.id, item.quantity - 1)}
                             style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--line)", background: "#fff", cursor: "pointer", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 16 }}
                           >
-                            −
+                            �^'
                           </button>
                           <span style={{ fontSize: 14, fontWeight: 700, minWidth: 24, textAlign: "center" }}>{item.quantity}</span>
                           <button
@@ -2837,7 +4841,7 @@ export default function App() {
                 </div>
                 
                 <div style={{ marginTop: 16, background: "linear-gradient(135deg, rgba(26,122,74,.08) 0%, rgba(26,122,74,.05) 100%)", border: "1px solid rgba(26,122,74,.2)", borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 12, color: "var(--green)", fontWeight: 700, marginBottom: 8 }}>💰 Total Savings</div>
+                  <div style={{ fontSize: 12, color: "var(--green)", fontWeight: 700, marginBottom: 8 }}>�Y'� Total Savings</div>
                   <div style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 900, color: "var(--green)" }}>
                     {fmt(cart.reduce((sum, item) => sum + (item.market - item.price) * item.quantity, 0))}
                   </div>
@@ -2855,6 +4859,7 @@ export default function App() {
   if (page === "wishlist") {
     return (
       <>
+        <PageMeta page="wishlist" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 24px" }}>
@@ -2888,6 +4893,7 @@ export default function App() {
   if (page === "compare") {
     return (
       <>
+        <PageMeta page="compare" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 24px" }}>
@@ -2898,7 +4904,7 @@ export default function App() {
 
           {compareList.length === 0 ? (
             <div style={{ ...panel, marginTop: 32, textAlign: "center", padding: "60px 24px" }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>⚖️</div>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>�s-️</div>
               <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "var(--ink)" }}>No products to compare</h3>
               <p style={{ color: "var(--muted)", marginBottom: 24 }}>Click the compare icon on products to add them here!</p>
               <button onClick={() => setPage("products")} style={solidBtn}>
@@ -2978,7 +4984,7 @@ export default function App() {
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "36px 24px" }}>
           <button onClick={() => setPage("product")} style={linkBtn}>Back</button>
           <h1 style={h2}>Order Flow</h1>
-          <p style={pMuted}>Fill your details and trigger M-Pesa STK simulation.</p>
+          <p style={pMuted}>Fill your details to trigger a real M-Pesa STK push.</p>
           <div style={panel}>
             <div style={{ marginBottom: 14, fontWeight: 700 }}>{selected.brand} {selected.name} - {fmt(selected.price)}</div>
             <Field label="Name" value={form.name} onChange={(v) => setForm((p) => ({ ...p, name: v }))} error={formErrors.name} />
@@ -2996,23 +5002,126 @@ export default function App() {
   }
 
   if (page === "confirm" && lastOrder) {
+    const confirmItems = Array.isArray(lastOrder.items) && lastOrder.items.length > 0
+      ? lastOrder.items
+      : lastOrder.product
+        ? [{ name: lastOrder.product, price: lastOrder.price, quantity: 1 }]
+        : [];
+    const copiedRef = () => {
+      try {
+        navigator.clipboard.writeText(lastOrder.id);
+      } catch {
+        // Clipboard access can be unavailable in some browser contexts.
+      }
+    };
+    const estDate = new Date();
+    estDate.setDate(estDate.getDate() + 5);
+    const estDateStr = estDate.toLocaleDateString("en-KE", { weekday: "long", month: "long", day: "numeric" });
+
     return (
       <>
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "50px 24px" }}>
-          <div style={panel}>
-            <h1 style={h2}>Order Confirmed</h1>
-            <p style={pMuted}>Reference generated and written to shared storage.</p>
-            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 32, fontWeight: 900, color: "var(--ink)", margin: "12px 0" }}>{lastOrder.id}</div>
-            <p style={{ ...pMuted, marginBottom: 6 }}>
-              {lastOrder.itemCount || 1} item{(lastOrder.itemCount || 1) !== 1 ? "s" : ""} · Total {fmt(lastOrder.total || lastOrder.price)}
+          {/* Success banner */}
+          <div style={{ background: "linear-gradient(135deg,#2d5a4d 0%,#3a7060 100%)", borderRadius: 18, padding: "32px 28px", marginBottom: 20, color: "#fff", textAlign: "center" }}>
+            <div style={{ fontSize: 48, marginBottom: 10 }}>�YZ?</div>
+            <h1 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900, fontSize: 28, margin: "0 0 8px", color: "#fff" }}>Order Confirmed!</h1>
+            <p style={{ opacity: 0.85, fontSize: 15, margin: "0 0 16px" }}>
+              Thank you{lastOrder.customer ? `, ${lastOrder.customer.split(" ")[0]}` : ""}! Your order is being processed.
             </p>
-            <p style={pMuted}>Use this reference in Order Tracking.</p>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-              <button onClick={() => { setPage("track"); setTrackRef(lastOrder.id); setTimeout(trackOrder, 50); }} style={solidBtn}>Track Order</button>
-              <button onClick={() => { setPage("home"); setLastOrder(null); }} style={outlineBtn}>Back Home</button>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 16px" }}>
+              <span style={{ fontFamily: "'Fraunces',serif", fontWeight: 900, fontSize: 22, letterSpacing: 1 }}>{lastOrder.id}</span>
+              <button
+                onClick={copiedRef}
+                title="Copy reference"
+                style={{ background: "rgba(255,255,255,0.25)", border: "none", borderRadius: 8, padding: "4px 8px", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+              >
+                Copy
+              </button>
             </div>
+            <p style={{ opacity: 0.7, fontSize: 12, marginTop: 6 }}>Save this reference for tracking</p>
+          </div>
+
+          {/* Delivery estimate */}
+          <div style={{ ...panel, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ fontSize: 32 }}>�Yss</div>
+            <div>
+              <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Estimated Delivery</div>
+              <div style={{ color: "var(--green)", fontWeight: 800, fontSize: 16 }}>{estDateStr}</div>
+              <div style={{ ...pMuted, fontSize: 12 }}>3�?"5 business days · Mombasa delivery via Sendy / G4S</div>
+            </div>
+          </div>
+
+          {/* Order summary */}
+          <div style={{ ...panel, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ ...h3, margin: 0 }}>Order Summary</h3>
+              <span style={{
+                background: lastOrder.paymentMethod === "M-Pesa" ? "#e8f5e9" : "#e8f0fe",
+                color: lastOrder.paymentMethod === "M-Pesa" ? "#1b5e20" : "#1a237e",
+                border: `1px solid ${lastOrder.paymentMethod === "M-Pesa" ? "#a5d6a7" : "#9fa8da"}`,
+                borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700
+              }}>
+                {lastOrder.paymentMethod || "Paid"}
+              </span>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {confirmItems.length > 0
+                ? confirmItems.map((item, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: idx < confirmItems.length - 1 ? "1px solid var(--line)" : "none" }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 14 }}>{item.brand ? `${item.brand} ${item.name}` : item.name || item.product}</div>
+                        {item.spec && <div style={{ fontSize: 12, color: "var(--muted)" }}>{item.spec}</div>}
+                        {item.grade && <div style={{ fontSize: 11, color: "var(--muted)" }}>Grade {item.grade}</div>}
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 700, color: "var(--ink)" }}>{fmt(item.price * (item.quantity || 1))}</div>
+                        {item.quantity > 1 && <div style={{ fontSize: 11, color: "var(--muted)" }}>�-{item.quantity} @ {fmt(item.price)}</div>}
+                      </div>
+                    </div>
+                  ))
+                : (
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink)", fontWeight: 600 }}>
+                      <span>{lastOrder.itemCount || 1} item(s)</span>
+                      <span>{fmt(lastOrder.total || lastOrder.price)}</span>
+                    </div>
+                  )
+              }
+            </div>
+            {lastOrder.discount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)", color: "#16a34a", fontWeight: 600 }}>
+                <span>Discount{lastOrder.couponCode ? ` (${lastOrder.couponCode})` : ""}</span>
+                <span>�?"{fmt(lastOrder.discount)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTop: "2px solid var(--line)", fontWeight: 800, fontSize: 16, color: "var(--ink)" }}>
+              <span>Total Paid</span>
+              <span>{fmt(lastOrder.total || lastOrder.price)}</span>
+            </div>
+          </div>
+
+          {/* What happens next */}
+          <div style={{ ...panel, marginBottom: 16 }}>
+            <h3 style={{ ...h3, marginBottom: 12 }}>What happens next</h3>
+            <ol style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 8, color: "var(--text-mid)", fontSize: 14 }}>
+              <li><strong style={{ color: "var(--ink)" }}>Sourcing (Day 1�?"2):</strong> We source your exact device from our Nairobi suppliers.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Live Photos (Day 2�?"3):</strong> We send you photos of the actual unit for approval.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Dispatch (Day 3�?"4):</strong> Approved device is shipped via Sendy Express / G4S.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Delivery (Day 4�?"5):</strong> Delivered to your Mombasa address with receipt.</li>
+            </ol>
+            {lastOrder.customerEmail && (
+              <p style={{ ...pMuted, marginTop: 12, fontSize: 12 }}>
+                �Y"� Confirmation sent to <strong>{lastOrder.customerEmail}</strong>
+              </p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={() => { setPage("track"); setTrackRef(lastOrder.id); setTimeout(trackOrder, 50); }} style={solidBtn}>Track Order</button>
+            <button onClick={() => setPage("my-orders")} style={outlineBtn}>All My Orders</button>
+            <button onClick={() => { setPage("home"); setLastOrder(null); }} style={outlineBtn}>Back Home</button>
           </div>
         </div>
         <Footer />
@@ -3023,6 +5132,7 @@ export default function App() {
   if (page === "admin") {
     return (
       <>
+        <PageMeta page="admin" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "44px 24px" }}>
@@ -3062,7 +5172,7 @@ export default function App() {
                         style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
                       />
                       <button type="button" style={{ width: "100%", border: "1px dashed var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fafaf9", color: "var(--text-mid)", fontSize: 13, cursor: "pointer" }}>
-                        📁 Upload Main Image
+                        �Y"� Upload Main Image
                       </button>
                     </div>
                     {adminForm.image && (
@@ -3088,7 +5198,7 @@ export default function App() {
                         style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
                       />
                       <button type="button" style={{ width: "100%", border: "1px dashed var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fafaf9", color: "var(--text-mid)", fontSize: 13, cursor: "pointer" }}>
-                        📁 Upload Additional Images ({adminForm.images.length})
+                        �Y"� Upload Additional Images ({adminForm.images.length})
                       </button>
                     </div>
                     {adminForm.images.length > 0 && (
@@ -3096,7 +5206,7 @@ export default function App() {
                         {adminForm.images.map((img, idx) => (
                           <div key={idx} style={{ position: "relative" }}>
                             <img src={img} alt={`Additional ${idx + 1}`} style={{ width: "100%", height: 70, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
-                            <button onClick={() => removeAdditionalImage(idx)} style={{ position: "absolute", top: 2, right: 2, background: "#fff", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>×</button>
+                            <button onClick={() => removeAdditionalImage(idx)} style={{ position: "absolute", top: 2, right: 2, background: "#fff", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>�-</button>
                           </div>
                         ))}
                       </div>
@@ -3121,16 +5231,167 @@ export default function App() {
               </aside>
 
               <section style={{ ...panel, maxHeight: "70vh", overflow: "auto" }}>
-                {/* Analytics Toggle Button */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid var(--line)" }}>
+                {/* Top toolbar */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
                   <h3 style={{ fontSize: 16, marginBottom: 0, color: "var(--ink)", fontWeight: 700 }}>Products ({catalog.length})</h3>
-                  <button
-                    onClick={() => calculateAdminStats()}
-                    style={{ background: "var(--ink)", color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    📊 View Analytics
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => { setShowBulkUpload((v) => !v); setBulkResult(null); setBulkPreview(null); setAdminMsg(""); }}
+                      style={{ background: showBulkUpload ? "#059669" : "#0ea5e9", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      �Y"� {showBulkUpload ? "Hide Bulk Upload" : "Bulk Upload"}
+                    </button>
+                    <button
+                      onClick={() => calculateAdminStats()}
+                      style={{ background: "var(--ink)", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      �Y"S Analytics
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowSeoPanel((prev) => {
+                          const next = !prev;
+                          if (!prev) void loadSeoAdminData();
+                          return next;
+                        });
+                      }}
+                      style={{ background: showSeoPanel ? "#065f46" : "#0f766e", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      {showSeoPanel ? "Hide SEO Ops" : "SEO Ops"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowBlogAdminPanel((prev) => {
+                          const next = !prev;
+                          if (!prev) void loadAdminBlogArticles();
+                          return next;
+                        });
+                      }}
+                      style={{ background: showBlogAdminPanel ? "#1d4ed8" : "#2563eb", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      {showBlogAdminPanel ? "Hide Blog Admin" : "Blog Admin"}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Bulk upload panel */}
+                {showBulkUpload && (
+                  <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <h4 style={{ fontSize: 14, fontWeight: 700, color: "#14532d", margin: 0 }}>Bulk Upload from Excel / CSV</h4>
+                      <button onClick={downloadBulkTemplate} style={{ background: "none", border: "1px solid #16a34a", borderRadius: 7, padding: "5px 10px", fontSize: 12, color: "#16a34a", cursor: "pointer", fontWeight: 600 }}>
+                        �? Download Template
+                      </button>
+                    </div>
+
+                    <p style={{ fontSize: 12, color: "#166534", marginBottom: 10, lineHeight: 1.5 }}>
+                      Required columns: <strong>brand, name, spec, price, market</strong>. Optional: id, category, grade, image, description, stock_status, stock_quantity, tags. Reference images by filename in the Excel.
+                    </p>
+
+                    {/* File upload area - two columns: Excel and Images */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                      {/* Excel file drop zone */}
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          onChange={(e) => e.target.files?.[0] && handleBulkFileSelect(e.target.files[0])}
+                          style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer", top: 0, left: 0 }}
+                        />
+                        <div style={{ border: "2px dashed #4ade80", borderRadius: 8, padding: "12px 10px", textAlign: "center", background: "white", color: "#15803d", fontSize: 12, cursor: "pointer" }}>
+                          {bulkPreview ? `Loaded: ${bulkPreview.fileName}` : "Upload Excel/CSV"}<br /><span style={{ fontSize: 11, color: "#16a34a" }}>{bulkPreview ? `${bulkPreview.rows.length} rows` : "Click to select"}</span>
+                        </div>
+                      </div>
+
+                      {/* Images file drop zone */}
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          onChange={(e) => e.target.files && handleBulkImageFileSelect(e.target.files)}
+                          style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer", top: 0, left: 0 }}
+                        />
+                        <div style={{ border: "2px dashed #60a5fa", borderRadius: 8, padding: "12px 10px", textAlign: "center", background: "white", color: "#1e40af", fontSize: 12, cursor: "pointer" }}>
+                          �Y-�️ Upload Images<br /><span style={{ fontSize: 11, color: "#2563eb" }}>{Object.keys(bulkImages).length > 0 ? `${Object.keys(bulkImages).length} images ready` : "Click to add"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Uploaded images gallery */}
+                    {Object.keys(bulkImages).length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#14532d", marginBottom: 6 }}>Uploaded Images ({Object.keys(bulkImages).length}):</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px, 1fr))", gap: 8 }}>
+                          {Object.entries(bulkImages).map(([name, base64]) => (
+                            <div key={name} style={{ position: "relative", borderRadius: 6, overflow: "hidden", border: "1px solid #bbf7d0", background: "#f3faf5" }}>
+                              <img src={base64} alt={name} style={{ width: "100%", height: 60, objectFit: "cover" }} />
+                              <div style={{ fontSize: 9, color: "#166534", padding: "2px 4px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "rgba(255,255,255,0.8)" }}>{name}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Preview table */}
+                    {bulkPreview && bulkPreview.rows.length > 0 && (
+                      <div style={{ overflowX: "auto", marginBottom: 10, border: "1px solid #bbf7d0", borderRadius: 8 }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                          <thead>
+                            <tr style={{ background: "#dcfce7" }}>
+                              {Object.keys(bulkPreview.rows[0]).slice(0, 7).map((col) => (
+                                <th key={col} style={{ padding: "6px 8px", textAlign: "left", color: "#14532d", fontWeight: 700, borderBottom: "1px solid #bbf7d0", whiteSpace: "nowrap" }}>{col}</th>
+                              ))}
+                              {Object.keys(bulkPreview.rows[0]).length > 7 && <th style={{ padding: "6px 8px", color: "#14532d", borderBottom: "1px solid #bbf7d0" }}>�?�</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bulkPreview.rows.slice(0, 5).map((row, i) => (
+                              <tr key={i} style={{ borderBottom: "1px solid #dcfce7" }}>
+                                {Object.values(row).slice(0, 7).map((val, j) => (
+                                  <td key={j} style={{ padding: "5px 8px", color: "#166534", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(val)}</td>
+                                ))}
+                                {Object.keys(row).length > 7 && <td style={{ padding: "5px 8px", color: "#4ade80" }}>�?�</td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {bulkPreview.rows.length > 5 && <div style={{ padding: "6px 10px", fontSize: 11, color: "#166534", borderTop: "1px solid #bbf7d0" }}>+ {bulkPreview.rows.length - 5} more row{bulkPreview.rows.length - 5 !== 1 ? "s" : ""} not shown</div>}
+                      </div>
+                    )}
+
+                    {/* Result summary */}
+                    {bulkResult && (
+                      <div style={{ background: "white", border: "1px solid #86efac", borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#14532d", marginBottom: 4 }}>�o. Upload complete �?" {bulkResult.total} rows processed</div>
+                        <div style={{ color: "#166534" }}>�z. Inserted: <strong>{bulkResult.inserted}</strong> · �Y"" Updated: <strong>{bulkResult.updated}</strong>{bulkResult.failed.length > 0 ? ` · �O Failed: ${bulkResult.failed.length}` : ""}</div>
+                        {bulkResult.failed.length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {bulkResult.failed.slice(0, 5).map((f) => (
+                              <div key={f.row} style={{ fontSize: 11, color: "#b91c1c" }}>Row {f.row}: {f.reason}</div>
+                            ))}
+                            {bulkResult.failed.length > 5 && <div style={{ fontSize: 11, color: "#b91c1c" }}>�?�and {bulkResult.failed.length - 5} more</div>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        onClick={submitBulkUpload}
+                        disabled={!bulkPreview || bulkUploading}
+                        style={{ background: !bulkPreview || bulkUploading ? "#bbf7d0" : "#16a34a", color: "white", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: !bulkPreview || bulkUploading ? "not-allowed" : "pointer" }}
+                      >
+                        {bulkUploading ? "Uploading�?�" : `Upload ${bulkPreview ? bulkPreview.rows.length + " products" : ""}`}
+                      </button>
+                      {(bulkPreview || Object.keys(bulkImages).length > 0) && (
+                        <button onClick={() => { setBulkPreview(null); setBulkResult(null); setBulkImages({}); }} style={{ background: "none", border: "1px solid #86efac", borderRadius: 8, padding: "9px 14px", fontSize: 13, color: "#166534", cursor: "pointer" }}>
+                          �Y-'️ Clear All
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 
                 {/* Analytics Display */}
                 {adminStats && (
@@ -3164,6 +5425,291 @@ export default function App() {
                             <div key={p.id} style={{ fontSize: 12, color: "var(--ink)", display: "flex", justifyContent: "space-between", paddingBottom: 4, borderBottom: i < adminStats.topProducts.length - 1 ? "1px solid #e0f2fe" : "none" }}>
                               <span>{i + 1}. {p.brand} {p.name}</span>
                               <span style={{ fontWeight: 600 }}>{p.count} order{p.count !== 1 ? "s" : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showSeoPanel && (
+                  <div style={{ background: "#f0fdfa", border: "1px solid #0d9488", borderRadius: 10, padding: 14, marginBottom: 14, display: "grid", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h4 style={{ fontSize: 14, fontWeight: 700, color: "#134e4a", margin: 0 }}>SEO Stats and Follow-up</h4>
+                      <button onClick={() => void loadSeoAdminData()} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Refresh SEO</button>
+                    </div>
+
+                    {seoLoading && <div style={{ fontSize: 12, color: "#0f766e" }}>Loading SEO data...</div>}
+                    {seoError && <div style={{ fontSize: 12, color: "#b91c1c" }}>{seoError}</div>}
+
+                    {seoDashboard?.kpis && (
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 700 ? "1fr" : "1fr 1fr 1fr", gap: 8 }}>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>GSC Clicks (30d)</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#134e4a" }}>{Math.round(seoDashboard.kpis.gscClicks || 0).toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>GSC CTR</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#134e4a" }}>{((seoDashboard.kpis.gscCtr || 0) * 100).toFixed(2)}%</div>
+                        </div>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>GA Sessions (30d)</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#134e4a" }}>{Math.round(seoDashboard.kpis.gaSessions || 0).toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>Published Articles</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#134e4a" }}>{seoDashboard.kpis.publishedArticles || 0}</div>
+                        </div>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>Open SEO Tasks</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: "#134e4a" }}>{seoDashboard.kpis.openTasks || 0}</div>
+                        </div>
+                        <div style={{ background: "white", border: "1px solid #ccfbf1", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: "#115e59" }}>Overdue Tasks</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: (seoDashboard.kpis.overdueTasks || 0) > 0 ? "#b91c1c" : "#134e4a" }}>{seoDashboard.kpis.overdueTasks || 0}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {Array.isArray(seoDashboard?.followUp) && seoDashboard.followUp.length > 0 && (
+                      <div style={{ background: "white", border: "1px solid #99f6e4", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a", marginBottom: 6 }}>Recommended Follow-up</div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {seoDashboard.followUp.map((item) => (
+                            <div key={item.id} style={{ display: "grid", gap: 4, borderBottom: "1px solid #ccfbf1", paddingBottom: 6 }}>
+                              <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 700 }}>{item.title}</div>
+                              {item.notes && <div style={{ fontSize: 11, color: "#334155" }}>{item.notes}</div>}
+                              <div>
+                                <button
+                                  onClick={() => void createSeoFollowUpTask({
+                                    title: item.title,
+                                    actionType: item.actionType || "content_task",
+                                    sourceType: item.sourceType || "local",
+                                    sourceRef: item.sourceRef || "",
+                                    priority: item.priority || "medium",
+                                    notes: item.notes || "",
+                                  })}
+                                  style={{ ...solidBtn, padding: "6px 10px", fontSize: 12 }}
+                                >
+                                  Create Task
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ background: "white", border: "1px solid #99f6e4", borderRadius: 8, padding: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a", marginBottom: 6 }}>Create SEO Follow-up</div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 860 ? "1fr" : "2fr 1fr 1fr", gap: 8 }}>
+                        <input
+                          value={seoTaskDraft.title}
+                          onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, title: e.target.value }))}
+                          placeholder="Task title"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <select value={seoTaskDraft.actionType} onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, actionType: e.target.value }))} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
+                          <option value="content_task">Content task</option>
+                          <option value="rewrite_task">Rewrite task</option>
+                          <option value="publish_queue">Publish queue</option>
+                          <option value="send_reminder">Send reminder</option>
+                        </select>
+                        <input type="date" value={seoTaskDraft.dueAt} onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, dueAt: e.target.value }))} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 860 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
+                        <input value={seoTaskDraft.sourceRef} onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, sourceRef: e.target.value }))} placeholder="Source reference (optional)" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <select value={seoTaskDraft.priority} onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, priority: e.target.value }))} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+                      <textarea value={seoTaskDraft.notes} onChange={(e) => setSeoTaskDraft((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" rows={2} style={{ width: "100%", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", resize: "vertical" }} />
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          onClick={() => {
+                            if (!seoTaskDraft.title.trim()) {
+                              setSeoError("Task title is required.");
+                              return;
+                            }
+                            void createSeoFollowUpTask(seoTaskDraft);
+                            setSeoTaskDraft({ title: "", actionType: "content_task", sourceType: "local", sourceRef: "", dueAt: "", notes: "", priority: "medium" });
+                          }}
+                          style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}
+                        >
+                          Save SEO Task
+                        </button>
+                      </div>
+                    </div>
+
+                    {seoTasks.length > 0 && (
+                      <div style={{ background: "white", border: "1px solid #99f6e4", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a", marginBottom: 6 }}>SEO Task Follow-up Queue</div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {seoTasks.slice(0, 12).map((task) => (
+                            <div key={task.id} style={{ border: "1px solid #ccfbf1", borderRadius: 8, padding: 8, display: "grid", gap: 4 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>{task.title}</div>
+                                <div style={{ fontSize: 11, color: "#334155" }}>{task.priority} · {task.status}</div>
+                              </div>
+                              <div style={{ fontSize: 11, color: "#475569" }}>{task.actionType} {task.sourceRef ? `· ${task.sourceRef}` : ""}</div>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {task.status !== "completed" && (
+                                  <button onClick={() => void updateSeoTaskStatus(task.id, "completed")} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Mark Complete</button>
+                                )}
+                                {task.status === "completed" && (
+                                  <button onClick={() => void updateSeoTaskStatus(task.id, "open")} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Reopen</button>
+                                )}
+                                <button onClick={() => void remindSeoTask(task.id)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Send Reminder</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showBlogAdminPanel && (
+                  <div style={{ background: "#eff6ff", border: "1px solid #60a5fa", borderRadius: 10, padding: 14, marginBottom: 14, display: "grid", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h4 style={{ fontSize: 14, fontWeight: 700, color: "#1e3a8a", margin: 0 }}>Blog Admin</h4>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button onClick={() => void loadAdminBlogArticles()} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Refresh Articles</button>
+                        <button onClick={() => void runBlogPublishSweep()} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Run Publish Sweep</button>
+                      </div>
+                    </div>
+
+                    {blogAdminError && <div style={{ fontSize: 12, color: "#b91c1c" }}>{blogAdminError}</div>}
+                    {blogAdminLoading && <div style={{ fontSize: 12, color: "#1e40af" }}>Loading blog admin data...</div>}
+
+                    <div style={{ background: "white", border: "1px solid #bfdbfe", borderRadius: 8, padding: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
+                        {blogAdminEditingId ? "Edit Blog Article" : "Create Blog Article"}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "2fr 1fr", gap: 8 }}>
+                        <input
+                          value={blogAdminDraft.title}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, title: e.target.value }))}
+                          placeholder="Article title"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <input
+                          value={blogAdminDraft.slug}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, slug: e.target.value }))}
+                          placeholder="Slug (optional)"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
+                        <input
+                          value={blogAdminDraft.focusKeyword}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, focusKeyword: e.target.value }))}
+                          placeholder="Focus keyword"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <select
+                          value={blogAdminDraft.status}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, status: e.target.value }))}
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", background: "#fff" }}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="published">Published</option>
+                          <option value="archived">Archived</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
+                        <input
+                          type="datetime-local"
+                          value={blogAdminDraft.publishedAt}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, publishedAt: e.target.value }))}
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <div style={{ fontSize: 11, color: "#475569", display: "flex", alignItems: "center" }}>
+                          Optional publish date/time. Future timestamps stay hidden from public blog/sitemap until due.
+                        </div>
+                      </div>
+                      <textarea
+                        value={blogAdminDraft.excerpt}
+                        onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, excerpt: e.target.value }))}
+                        placeholder="Short excerpt"
+                        rows={2}
+                        style={{ width: "100%", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", resize: "vertical" }}
+                      />
+                      <textarea
+                        value={blogAdminDraft.content}
+                        onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, content: e.target.value }))}
+                        placeholder="Article content (HTML supported)"
+                        rows={5}
+                        style={{ width: "100%", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", resize: "vertical" }}
+                      />
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
+                        <input
+                          value={blogAdminDraft.metaTitle}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, metaTitle: e.target.value }))}
+                          placeholder="Meta title"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <input
+                          value={blogAdminDraft.metaDescription}
+                          onChange={(e) => setBlogAdminDraft((prev) => ({ ...prev, metaDescription: e.target.value }))}
+                          placeholder="Meta description"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <button onClick={() => void saveBlogAdminDraft()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>
+                          {blogAdminEditingId ? "Update Article" : "Create Article"}
+                        </button>
+                        <button onClick={clearBlogAdminDraft} style={{ ...outlineBtn, padding: "7px 12px", fontSize: 12 }}>
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    {blogAdminItems.length > 0 && (
+                      <div style={{ background: "white", border: "1px solid #bfdbfe", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
+                          Existing Blog Articles ({blogAdminItems.length})
+                        </div>
+                        <div style={{ display: "grid", gap: 6, maxHeight: 320, overflow: "auto" }}>
+                          {blogAdminItems.map((item) => (
+                            <div key={item.id} style={{ border: "1px solid #dbeafe", borderRadius: 8, padding: 8, display: "grid", gap: 4 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>{item.title}</div>
+                                <div style={{ fontSize: 11, color: "#1e3a8a" }}>{item.status} · SEO {Math.round(Number(item.seoScore || 0))}</div>
+                              </div>
+                              <div style={{ fontSize: 11, color: "#475569" }}>/blog/{item.slug}</div>
+                              <div style={{ fontSize: 11, color: "#475569" }}>
+                                Publish time: {item.publishedAt ? new Date(item.publishedAt).toLocaleString() : "Not set"}
+                              </div>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <button onClick={() => startBlogAdminEdit(item)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Edit</button>
+                                {item.status !== "published" && (
+                                  <button
+                                    onClick={() => void publishBlogAdminItem(item)}
+                                    style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}
+                                  >
+                                    Publish
+                                  </button>
+                                )}
+                                {item.status === "published" && (
+                                  <button
+                                    onClick={() => void unpublishBlogAdminItem(item)}
+                                    style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}
+                                  >
+                                    Unpublish
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => void deleteBlogAdminItem(item)}
+                                  style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11, borderColor: "#dc2626", color: "#dc2626" }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -3207,21 +5753,298 @@ export default function App() {
     );
   }
 
+  if (page === "profile") {
+    return (
+      <>
+        <PageMeta page="profile" />
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "44px 24px" }}>
+          <h1 style={{ ...h2, marginBottom: 8 }}>My Profile</h1>
+          <p style={{ ...pMuted, marginBottom: 16 }}>
+            Inspired by major marketplaces, your Nafuu profile keeps delivery details, payment preferences, and account basics in one place.
+          </p>
+
+          {!activeUser ? (
+            <div style={panel}>
+              <p style={{ ...pMuted, marginBottom: 12 }}>Sign in to manage your profile, payment methods, and address book.</p>
+              <button onClick={() => openAuth("signin")} style={solidBtn}>Sign in</button>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 16 }}>
+              {profileMsg && (
+                <div style={{ ...panel, border: "1px solid #d8ece0", background: "#f3faf5", color: "var(--green)", fontWeight: 600 }}>
+                  {profileMsg}
+                </div>
+              )}
+
+              <div style={{ ...panel, display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "220px 1fr", gap: 16 }}>
+                <div style={{ display: "grid", gap: 10, justifyItems: viewportWidth < 900 ? "start" : "center" }}>
+                  <div style={{ width: 120, height: 120, borderRadius: 999, background: "#f4f4f2", border: "1px solid var(--line)", overflow: "hidden", display: "grid", placeItems: "center" }}>
+                    {profileData.profilePicture ? (
+                      <img src={profileData.profilePicture} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <span style={{ fontSize: 34, fontWeight: 800, color: "var(--ink-soft)" }}>
+                        {(profileData.fullName || activeUser.name || "N").trim().charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <label style={{ ...outlineBtn, textAlign: "center", display: "inline-block" }}>
+                    Upload photo
+                    <input type="file" accept="image/*" onChange={handleProfilePhotoUpload} style={{ display: "none" }} />
+                  </label>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>Full Name</label>
+                    <input value={profileData.fullName} onChange={(e) => setProfileData((prev) => ({ ...prev, fullName: e.target.value }))} style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>Email</label>
+                    <input value={activeUser.email || ""} readOnly style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#f8f8f6" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>Primary Phone</label>
+                    <input value={profileData.phone} onChange={(e) => setProfileData((prev) => ({ ...prev, phone: e.target.value }))} placeholder="07XXXXXXXX" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>Alternative Phone</label>
+                    <input value={profileData.altPhone} onChange={(e) => setProfileData((prev) => ({ ...prev, altPhone: e.target.value }))} placeholder="Optional" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>Bio</label>
+                    <textarea rows={3} value={profileData.bio} onChange={(e) => setProfileData((prev) => ({ ...prev, bio: e.target.value }))} placeholder="Tell us what tech you shop for most..." style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", resize: "vertical" }} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <h3 style={{ ...h3, marginBottom: 10 }}>Delivery Address Book</h3>
+                <p style={{ ...pMuted, marginBottom: 12, fontSize: 13 }}>
+                  Save multiple delivery points like Home, Work, or Recipient pickup and choose which one is your default at checkout.
+                </p>
+
+                <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                  {(profileData.addresses || []).map((address) => (
+                    <div key={address.id} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, background: profileData.defaultAddressId === address.id ? "#f8fcf8" : "#fff" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700, color: "var(--ink)" }}>{address.label || "Address"}</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button onClick={() => setDefaultProfileAddress(address.id)} style={{ ...outlineBtn, padding: "8px 10px", fontSize: 12 }}>
+                            {profileData.defaultAddressId === address.id ? "Default address" : "Set default"}
+                          </button>
+                          {(profileData.addresses || []).length > 1 && (
+                            <button onClick={() => removeProfileAddress(address.id)} style={{ ...outlineBtn, padding: "8px 10px", fontSize: 12, borderColor: "#dc2626", color: "#dc2626" }}>Remove</button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr", gap: 10 }}>
+                        <input value={address.label || ""} onChange={(e) => updateProfileAddress(address.id, "label", e.target.value)} placeholder="Address label" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <input value={address.recipientName || ""} onChange={(e) => updateProfileAddress(address.id, "recipientName", e.target.value)} placeholder="Recipient name" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <input value={address.phone || ""} onChange={(e) => updateProfileAddress(address.id, "phone", e.target.value)} placeholder="Recipient phone" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <input value={address.county || ""} onChange={(e) => updateProfileAddress(address.id, "county", e.target.value)} placeholder="County" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <input value={address.town || ""} onChange={(e) => updateProfileAddress(address.id, "town", e.target.value)} placeholder="Town / Area" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <input value={address.addressLine || ""} onChange={(e) => updateProfileAddress(address.id, "addressLine", e.target.value)} placeholder="Estate, house/apartment, street" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <textarea rows={2} value={address.landmark || ""} onChange={(e) => updateProfileAddress(address.id, "landmark", e.target.value)} placeholder="Landmark, nearest stage, gate color" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", resize: "vertical" }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ borderTop: "1px dashed var(--line)", paddingTop: 12 }}>
+                  <h4 style={{ ...h3, marginBottom: 8, fontSize: 14 }}>Add another address</h4>
+                  <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr", gap: 10 }}>
+                    <input value={addressDraft.label || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, label: e.target.value }))} placeholder="Label e.g. Home / Work" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={addressDraft.recipientName || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, recipientName: e.target.value }))} placeholder="Recipient name" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={addressDraft.phone || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, phone: e.target.value }))} placeholder="Recipient phone" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={addressDraft.county || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, county: e.target.value }))} placeholder="County" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={addressDraft.town || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, town: e.target.value }))} placeholder="Town / Area" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={addressDraft.addressLine || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, addressLine: e.target.value }))} placeholder="Address line" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <textarea rows={2} value={addressDraft.landmark || ""} onChange={(e) => setAddressDraft((prev) => ({ ...prev, landmark: e.target.value }))} placeholder="Landmark or instructions" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", resize: "vertical" }} />
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button onClick={addProfileAddress} style={outlineBtn}>Add address</button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <h3 style={{ ...h3, marginBottom: 10 }}>Payment Preferences</h3>
+                <p style={{ ...pMuted, marginBottom: 10, fontSize: 13 }}>
+                  Similar to global marketplaces, saved payment methods speed up checkout. For security, only masked card details are stored in your profile.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>M-Pesa Number</label>
+                    <input value={profileData.mpesaPhone} onChange={(e) => setProfileData((prev) => ({ ...prev, mpesaPhone: e.target.value }))} placeholder="07XXXXXXXX" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>M-Pesa Account Name</label>
+                    <input value={profileData.mpesaName} onChange={(e) => setProfileData((prev) => ({ ...prev, mpesaName: e.target.value }))} placeholder="Name on M-Pesa" style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                  </div>
+                </div>
+
+                <div style={{ borderTop: "1px dashed var(--line)", paddingTop: 12, marginTop: 4 }}>
+                  <h4 style={{ ...h3, marginBottom: 8, fontSize: 14 }}>Saved Cards</h4>
+                  <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 1fr 1fr auto", gap: 8, marginBottom: 10 }}>
+                    <input value={cardDraft.holder} onChange={(e) => setCardDraft((prev) => ({ ...prev, holder: e.target.value }))} placeholder="Card holder" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <input value={cardDraft.number} onChange={(e) => setCardDraft((prev) => ({ ...prev, number: e.target.value }))} placeholder="Card number" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <input value={cardDraft.expMonth} onChange={(e) => setCardDraft((prev) => ({ ...prev, expMonth: e.target.value }))} placeholder="MM" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                      <input value={cardDraft.expYear} onChange={(e) => setCardDraft((prev) => ({ ...prev, expYear: e.target.value }))} placeholder="YYYY" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }} />
+                    </div>
+                    <button onClick={addProfileCard} style={outlineBtn}>Add card</button>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {(profileData.cards || []).length === 0 ? (
+                      <div style={{ color: "var(--muted)", fontSize: 13 }}>No card saved yet.</div>
+                    ) : (
+                      (profileData.cards || []).map((card) => (
+                        <div key={card.id} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 700, color: "var(--ink)" }}>{card.brand} �?��?��?��?� {card.last4}</div>
+                            <div style={{ fontSize: 12, color: "var(--muted)" }}>{card.holder} · Exp {card.expMonth}/{card.expYear}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              onClick={() => setProfileData((prev) => ({ ...prev, defaultCardId: card.id }))}
+                              style={{ ...outlineBtn, padding: "8px 10px", fontSize: 12 }}
+                            >
+                              {profileData.defaultCardId === card.id ? "Default" : "Set default"}
+                            </button>
+                            <button onClick={() => removeProfileCard(card.id)} style={{ ...outlineBtn, padding: "8px 10px", fontSize: 12, borderColor: "#dc2626", color: "#dc2626" }}>Remove</button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <h3 style={{ ...h3, marginBottom: 8 }}>Notifications</h3>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ink)" }}>
+                    <input type="checkbox" checked={profileData.notifyEmail} onChange={(e) => setProfileData((prev) => ({ ...prev, notifyEmail: e.target.checked }))} />
+                    Order updates by email
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ink)" }}>
+                    <input type="checkbox" checked={profileData.notifySms} onChange={(e) => setProfileData((prev) => ({ ...prev, notifySms: e.target.checked }))} />
+                    Order updates by SMS
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ink)" }}>
+                    <input type="checkbox" checked={profileData.notifyDeals} onChange={(e) => setProfileData((prev) => ({ ...prev, notifyDeals: e.target.checked }))} />
+                    Weekly deals and hot-drop alerts
+                  </label>
+                </div>
+              </div>
+
+              <div style={panel}>
+                <h3 style={{ ...h3, marginBottom: 8 }}>Security Center</h3>
+                <p style={{ ...pMuted, marginBottom: 12 }}>
+                  Passwords, social sign-in methods, sessions, and account verification stay secured by Clerk. Use the buttons below to manage sensitive account settings safely.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, background: "#fafaf9" }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>Email Verification</div>
+                    <div style={{ marginTop: 6, fontWeight: 700, color: "var(--ink)" }}>
+                      {window.Clerk?.user?.primaryEmailAddress?.verification?.status === "verified" ? "Verified" : "Pending verification"}
+                    </div>
+                  </div>
+                  <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, background: "#fafaf9" }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>Sign-in Methods</div>
+                    <div style={{ marginTop: 6, fontWeight: 700, color: "var(--ink)" }}>
+                      {(window.Clerk?.user?.externalAccounts?.length || 0) > 0 ? `${window.Clerk.user.externalAccounts.length} social account(s) linked` : "Email / password or social managed by Clerk"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={openSecurityCenter} style={solidBtn}>Open account security</button>
+                  <button onClick={signOut} style={outlineBtn}>Sign out this device</button>
+                </div>
+              </div>
+
+              {/* Recent Orders */}
+              {userOrders.length > 0 && (
+                <div style={panel}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <h3 style={{ ...h3, margin: 0 }}>Recent Orders</h3>
+                    <button onClick={() => setPage("my-orders")} style={{ ...outlineBtn, padding: "6px 14px", fontSize: 12 }}>
+                      View all
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {userOrders.slice(0, 3).map((order) => {
+                      const statusKey = computeLiveStatus(order);
+                      const step = STATUS_STEPS[stepIdx(statusKey)] || STATUS_STEPS[0];
+                      return (
+                        <div key={order.id} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px", display: "grid", gap: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                            <span style={{ fontFamily: "'Fraunces',serif", fontWeight: 800, fontSize: 16, color: "var(--ink)" }}>{order.id}</span>
+                            <span style={{ background: "#f3faf5", border: "1px solid #d8ece0", color: "var(--green)", borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
+                              {step.label}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--text-mid)", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <span>{fmt(order.total || order.price)}</span>
+                            <span>{new Date(order.timestamp).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</span>
+                            <span>{order.itemCount || 1} item{(order.itemCount || 1) !== 1 ? "s" : ""}</span>
+                          </div>
+                          <button
+                            onClick={() => { setTrackRef(order.id); setPage("track"); setTimeout(trackOrder, 50); }}
+                            style={{ ...outlineBtn, padding: "5px 12px", fontSize: 12, alignSelf: "start", marginTop: 2 }}
+                          >
+                            Track
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => void saveProfileData(profileData, "Profile and payment details saved.")}
+                  disabled={profileSaving}
+                  style={{ ...solidBtn, opacity: profileSaving ? 0.65 : 1 }}
+                >
+                  {profileSaving ? "Saving..." : "Save profile"}
+                </button>
+                <button onClick={() => setPage("home")} style={outlineBtn}>Back home</button>
+                <button onClick={() => setPage("my-orders")} style={outlineBtn}>View my orders</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
   if (page === "my-orders") {
     return (
       <>
+        <PageMeta page="myOrders" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 980, margin: "0 auto", padding: "44px 24px" }}>
           <h1 style={{ ...h2, marginBottom: 8 }}>My Orders</h1>
-          {!currentUser ? (
+          {!activeUser ? (
             <div style={{ ...panel, marginTop: 16 }}>
               <p style={{ ...pMuted, marginBottom: 12 }}>Sign in to view orders tied to your account.</p>
               <button onClick={() => openAuth("signin")} style={solidBtn}>Sign in</button>
             </div>
           ) : userOrders.length === 0 ? (
             <div style={{ ...panel, marginTop: 16 }}>
-              <p style={{ ...pMuted, marginBottom: 8 }}>No orders yet for <strong>{currentUser.email}</strong>.</p>
+              <p style={{ ...pMuted, marginBottom: 8 }}>No orders yet for <strong>{activeUser.email}</strong>.</p>
               <button onClick={() => setPage("products")} style={solidBtn}>Start Shopping</button>
             </div>
           ) : (
@@ -3261,6 +6084,263 @@ export default function App() {
     );
   }
 
+  if (page === "blog") {
+    return (
+      <>
+        <PageMeta page="blog" />
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "44px 24px" }}>
+          <div style={{ ...panel, marginBottom: 16, display: "grid", gap: 8 }}>
+            <h1 style={{ ...h2, marginBottom: 0 }}>Tech Journal</h1>
+            <p style={pMuted}>
+              Practical buying guides, maintenance tips, and SEO-driven electronics insights from Nafuu Mart.
+            </p>
+          </div>
+
+          {blogError && (
+            <div style={{ ...panel, border: "1px solid #fecaca", background: "#fff5f5", color: "#991b1b", marginBottom: 12 }}>
+              {blogError}
+            </div>
+          )}
+
+          {blogLoading ? (
+            <div style={panel}>Loading articles...</div>
+          ) : blogPosts.length === 0 ? (
+            <div style={panel}>No published articles yet.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 1fr", gap: 14 }}>
+              {blogPosts.map((post) => (
+                <article
+                  key={post.id || post.slug}
+                  style={{ ...panel, display: "grid", gap: 10, cursor: "pointer" }}
+                  onClick={() => {
+                    setSelectedBlogPost(post);
+                    setSelectedBlogSlug(slugifySegment(post.slug));
+                    setPage("blog-post");
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", fontWeight: 700 }}>
+                      {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : "Draft"}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--green)", border: "1px solid #d8ece0", background: "#f3faf5", borderRadius: 999, padding: "4px 10px" }}>
+                      SEO score {Math.round(Number(post.seoScore || 0))}
+                    </span>
+                  </div>
+                  <h3 style={{ ...h3, margin: 0, fontSize: 21 }}>{post.title}</h3>
+                  <p style={{ ...pMuted, margin: 0 }}>{buildExcerpt(post, 160)}</p>
+                  <button
+                    style={{ ...outlineBtn, justifySelf: "start" }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedBlogPost(post);
+                      setSelectedBlogSlug(slugifySegment(post.slug));
+                      setPage("blog-post");
+                    }}
+                  >
+                    Read article
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (page === "blog-post") {
+    const articleSlug = slugifySegment(selectedBlogPost?.slug || selectedBlogSlug);
+    const articleTitle = selectedBlogPost?.metaTitle || selectedBlogPost?.title || "Tech Article - Nafuu Mart";
+    const articleDescription = selectedBlogPost?.metaDescription || buildExcerpt(selectedBlogPost, 155) || "Read the latest tech insights from Nafuu Mart.";
+    const articleCanonical = articleSlug
+      ? `${window.location.origin}/blog/${articleSlug}`
+      : `${window.location.origin}/blog`;
+
+    return (
+      <>
+        <PageMeta
+          page="blogPost"
+          additionalMeta={{
+            title: articleTitle,
+            description: articleDescription,
+            canonical: articleCanonical,
+            ogType: "article",
+            ogUrl: articleCanonical,
+            keywords: selectedBlogPost?.focusKeyword || "nafuu mart tech journal",
+          }}
+        />
+        {selectedBlogPost && (
+          <BlogArticleMeta
+            article={{
+              title: articleTitle,
+              description: articleDescription,
+              datePublished: selectedBlogPost.publishedAt || selectedBlogPost.createdAt || undefined,
+              dateModified: selectedBlogPost.updatedAt || selectedBlogPost.publishedAt || undefined,
+              url: articleCanonical,
+            }}
+          />
+        )}
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "44px 24px" }}>
+          <button onClick={() => setPage("blog")} style={linkBtn}>Back to Tech Journal</button>
+
+          {blogError && (
+            <div style={{ ...panel, border: "1px solid #fecaca", background: "#fff5f5", color: "#991b1b", marginTop: 12 }}>
+              {blogError}
+            </div>
+          )}
+
+          {blogLoading && <div style={{ ...panel, marginTop: 12 }}>Loading article...</div>}
+
+          {!blogLoading && !selectedBlogPost && (
+            <div style={{ ...panel, marginTop: 12, display: "grid", gap: 10 }}>
+              <div style={{ ...pMuted, margin: 0 }}>This article is unavailable or still unpublished.</div>
+              <button onClick={() => setPage("blog")} style={solidBtn}>Browse Articles</button>
+            </div>
+          )}
+
+          {!blogLoading && selectedBlogPost && (
+            <article style={{ ...panel, marginTop: 12, padding: viewportWidth < 760 ? 18 : 24 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  {selectedBlogPost.publishedAt ? new Date(selectedBlogPost.publishedAt).toLocaleDateString() : "Unpublished"}
+                </span>
+                {selectedBlogPost.focusKeyword && (
+                  <span style={{ fontSize: 12, color: "var(--green)", border: "1px solid #d8ece0", borderRadius: 999, padding: "4px 10px", background: "#f3faf5" }}>
+                    {selectedBlogPost.focusKeyword}
+                  </span>
+                )}
+              </div>
+
+              <h1 style={{ ...h2, marginBottom: 10 }}>{selectedBlogPost.title}</h1>
+              <p style={{ ...pMuted, marginBottom: 18 }}>{buildExcerpt(selectedBlogPost, 240)}</p>
+
+              <div
+                style={{ color: "var(--ink-soft)", lineHeight: 1.8, fontSize: 15 }}
+                dangerouslySetInnerHTML={{ __html: selectedBlogPost.content || "<p>Content unavailable.</p>" }}
+              />
+
+              <div style={{ marginTop: 20, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={() => setPage("blog")} style={outlineBtn}>More Articles</button>
+                {articleSlug && (
+                  <button
+                    onClick={() => {
+                      const url = `${window.location.origin}/blog/${articleSlug}`;
+                      navigator.clipboard?.writeText(url).catch(() => {});
+                    }}
+                    style={solidBtn}
+                  >
+                    Copy Link
+                  </button>
+                )}
+              </div>
+            </article>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (page === "status") {
+    const checks = Object.entries(systemStatus?.checks || {});
+    return (
+      <>
+        <PageMeta page="status" />
+        <style>{G}</style>
+        {Nav()}
+        <div style={{ maxWidth: 920, margin: "0 auto", padding: "44px 24px" }}>
+          <h1 style={{ ...h2, marginBottom: 8 }}>System Status</h1>
+          <p style={{ ...pMuted, marginBottom: 14 }}>
+            Live readiness diagnostics for API, auth, database, and payments.
+          </p>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+            <button onClick={() => void loadSystemStatus()} style={solidBtn}>
+              {systemStatusLoading ? "Refreshing..." : "Refresh Status"}
+            </button>
+            <button onClick={() => setPage("home")} style={outlineBtn}>Back Home</button>
+          </div>
+
+          {systemStatusError && (
+            <div style={{ ...panel, border: "1px solid #fecaca", background: "#fff5f5", color: "#991b1b", marginBottom: 12 }}>
+              {systemStatusError}
+            </div>
+          )}
+
+          {systemStatus && (
+            <>
+              <div style={{ ...panel, marginBottom: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 700 ? "1fr" : "1fr 1fr", gap: 10 }}>
+                  <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "#fafaf9" }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>API Health</div>
+                    <div style={{ marginTop: 4, fontWeight: 800, color: systemStatus.apiOk ? "#166534" : "#b91c1c" }}>
+                      {systemStatus.apiOk ? "Online" : "Unavailable"}
+                    </div>
+                  </div>
+                  <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "#fafaf9" }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>Backend Readiness</div>
+                    <div style={{ marginTop: 4, fontWeight: 800, color: systemStatus.ready ? "#166534" : "#b91c1c" }}>
+                      {systemStatus.ready ? "Ready" : "Not Ready"}
+                    </div>
+                  </div>
+                </div>
+                {systemStatus.message && <p style={{ ...pMuted, marginTop: 10 }}>{systemStatus.message}</p>}
+                <p style={{ ...pMuted, marginTop: 6 }}>Auth mode: <strong>{systemStatus.envMode || "auto"}</strong></p>
+              </div>
+
+              <div style={{ ...panel, marginBottom: 12 }}>
+                <h3 style={{ fontSize: 18, marginBottom: 10 }}>Checks</h3>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {checks.length === 0 && <div style={{ ...pMuted }}>No check data returned.</div>}
+                  {checks.map(([key, ok]) => (
+                    <div key={key} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", gap: 10, background: "#fff" }}>
+                      <span style={{ color: "var(--ink)", fontWeight: 700 }}>{key}</span>
+                      <span style={{ color: ok ? "#166534" : "#b91c1c", fontWeight: 700 }}>{ok ? "OK" : "Missing"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {!systemStatus.ready && systemStatus.missingKeys.length > 0 && (
+                <div style={{ ...panel, border: "1px solid #fed7aa", background: "#fff7ed" }}>
+                  <h3 style={{ fontSize: 16, marginBottom: 8, color: "#9a3412" }}>Missing Setup</h3>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: "#9a3412" }}>
+                    {systemStatus.missingKeys.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {Array.isArray(systemStatus.preflightRows) && systemStatus.preflightRows.length > 0 && (
+                <div style={{ ...panel, marginTop: 12 }}>
+                  <h3 style={{ fontSize: 16, marginBottom: 8 }}>Preflight Detail</h3>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {systemStatus.preflightRows.map((row) => (
+                      <div key={row.key} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "grid", gap: 2, background: "#fff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ color: "var(--ink)", fontWeight: 700 }}>{row.key}</span>
+                          <span style={{ color: row.present ? "#166534" : row.required ? "#b91c1c" : "#6b7280", fontWeight: 700 }}>
+                            {row.present ? "OK" : row.required ? "Missing" : "Optional"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>{row.scope} · {row.note}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
   if (page === "info" && infoPage) {
     return (
       <>
@@ -3290,6 +6370,7 @@ export default function App() {
   if (page === "track") {
     return (
       <>
+        <PageMeta page="track" />
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "50px 24px" }}>
@@ -3358,29 +6439,25 @@ export default function App() {
   }
 
   if (page === "auth") {
+
+    if (forcedClerkMode) {
+      return (
+        <>
+          <style>{G}</style>
+          {Nav()}
+          <div style={{ maxWidth: 760, margin: "0 auto", padding: "44px 24px" }}>
+            <div style={{ ...panel, border: "1px solid #f5d6a5", background: "#fffaf2", display: "grid", gap: 10 }}>
+              <h1 style={{ ...h2, marginBottom: 0 }}>Clerk Configuration Required</h1>
+              <p style={pMuted}>Set VITE_CLERK_PUBLISHABLE_KEY in your env file, then restart the app.</p>
+              <button onClick={() => setPage("home")} style={solidBtn}>Back Home</button>
+            </div>
+          </div>
+          <Footer />
+        </>
+      );
+    }
+
     const showAuthPromo = viewportWidth >= 920;
-    const authTitle = authPanel === "forgot"
-      ? "Reset your password"
-      : authPanel === "reset"
-      ? "Choose a new password"
-      : authPanel === "verify"
-      ? "Verify your email"
-      : authStep === "email"
-      ? "Who goes there?"
-      : authMode === "signin"
-      ? "Welcome back"
-      : "Create your account";
-    const authSubtitle = authPanel === "forgot"
-      ? "Enter your email and we will send you a secure reset link."
-      : authPanel === "reset"
-      ? "Set a fresh password to secure your Nafuu account."
-      : authPanel === "verify"
-      ? "Confirm your inbox to activate full account access."
-      : authStep === "email"
-      ? ""
-      : authMode === "signin"
-      ? "Sign in to track orders faster and keep your details ready at checkout."
-      : "Join Nafuu to save preferences, follow deliveries, and shop quicker next time.";
 
     return (
       <>
@@ -3406,255 +6483,152 @@ export default function App() {
               </div>
             </section>}
 
-            <section style={{ padding: showAuthPromo ? "22px 24px" : "18px 16px", overflowY: "auto", maxHeight: "calc(100svh - 20px)" }}>
-              <h1 style={{ fontFamily: "'Fraunces',serif", fontSize: showAuthPromo ? 30 : 24, lineHeight: 1.08, marginBottom: 6, color: "var(--ink)" }}>{authTitle}</h1>
-              {authSubtitle && <p style={{ color: "var(--ink-soft)", lineHeight: 1.5, marginBottom: 8, fontSize: 13 }}>{authSubtitle}</p>}
-              
-              {authPanel === "form" && authStep === "email" && (
-                <>
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={{ display: "block", fontSize: 14, color: "var(--ink)", fontWeight: 600, marginBottom: 8 }}>Email *</label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        value={authForm.email}
-                        onChange={(e) => { setAuthForm((s) => ({ ...s, email: e.target.value })); setAuthErrors({}); }}
-                        onKeyDown={(e) => e.key === "Enter" && proceedToPassword()}
-                        placeholder="you@example.com"
-                        style={{ width: "100%", border: `1px solid ${authErrors.email ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "14px 42px 14px 14px", fontSize: 15, background: "#fafafa" }}
-                      />
-                      <span style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", fontSize: 18, color: "#999" }}>✉</span>
-                    </div>
-                    {authErrors.email && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.email}</div>}
+            <section style={{ padding: showAuthPromo ? "22px 24px" : "18px 16px", overflowY: "auto", maxHeight: "calc(100svh - 20px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "100%", maxWidth: 480 }}>
+                {/* Title */}
+                <div style={{ marginBottom: 22 }}>
+                  <h2 style={{ fontFamily: "'Fraunces',serif", fontWeight: 800, fontSize: 28, color: "var(--ink)", marginBottom: 4, lineHeight: 1.1 }}>
+                    {authMode === "signin" ? "Welcome back" : "Create your account"}
+                  </h2>
+                  <p style={{ color: "var(--muted)", fontSize: 14 }}>
+                    {authMode === "signin" ? "Sign in to continue to Nafuu Mart" : "One account for orders, tracking and checkout"}
+                  </p>
+                </div>
+
+                {/* Message banner */}
+                {authMsg && (
+                  <div style={{
+                    background: /sent|created|check your email/i.test(authMsg) ? "#f0fdf4" : "#fef2f2",
+                    border: `1px solid ${/sent|created|check your email/i.test(authMsg) ? "#bbf7d0" : "#fecaca"}`,
+                    color: /sent|created|check your email/i.test(authMsg) ? "#166534" : "#991b1b",
+                    borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 14, lineHeight: 1.5
+                  }}>
+                    {authMsg}
                   </div>
+                )}
 
-                  <button 
-                    onClick={proceedToPassword}
-                    style={{ width: "100%", border: "none", borderRadius: 11, background: "var(--ink)", color: "#fff", padding: "15px 14px", fontWeight: 700, fontSize: 16, cursor: "pointer", marginBottom: 16 }}
-                  >
-                    Next
-                  </button>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                    <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
-                    <span style={{ fontSize: 13, color: "var(--muted)", fontWeight: 600 }}>or</span>
-                    <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
-                  </div>
-
-                  <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
-                    <button
-                      onClick={() => continueWithSocial("google")}
-                      style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 11, background: "#fff", color: "var(--ink)", padding: "13px 14px", fontWeight: 600, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
-                    >
-                      <span style={{ width: 20, height: 20, borderRadius: "50%", background: "conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0 100%)" }} />
-                      Continue with Google
-                    </button>
-                    <button
-                      onClick={() => continueWithSocial("apple")}
-                      style={{ width: "100%", border: "1px solid #151515", borderRadius: 11, background: "#151515", color: "#fff", padding: "13px 14px", fontWeight: 600, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
-                    >
-                      <span style={{ fontSize: 18, lineHeight: 1 }}></span>
-                      Continue with Apple
-                    </button>
-                  </div>
-
-                  <div style={{ textAlign: "center", marginTop: 16 }}>
-                    <button 
-                      onClick={() => setPage("home")}
-                      style={{ background: "none", border: "none", color: "var(--ink)", fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
-                    >
-                      Privacy Policy
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {authPanel === "form" && authStep === "password" && (
-                <>
-                  <button 
-                    onClick={() => { setAuthStep("email"); setAuthErrors({}); }}
-                    style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#2d5a4d", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                  >
-                    ← Back
-                  </button>
-
-                  <div style={{ display: "flex", gap: 8, background: "#f3f2ee", borderRadius: 12, padding: 5, marginBottom: 12 }}>
-                    <button onClick={() => { setAuthMode("signin"); setAuthErrors({}); setAuthMsg(""); }} style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 12px", fontWeight: 700, cursor: "pointer", background: authMode === "signin" ? "#fff" : "transparent", color: "var(--ink)", boxShadow: authMode === "signin" ? "0 1px 4px rgba(0,0,0,.08)" : "none" }}>Sign in</button>
-                    <button onClick={() => { setAuthMode("signup"); setAuthErrors({}); setAuthMsg(""); }} style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 12px", fontWeight: 700, cursor: "pointer", background: authMode === "signup" ? "#fff" : "transparent", color: "var(--ink)", boxShadow: authMode === "signup" ? "0 1px 4px rgba(0,0,0,.08)" : "none" }}>Sign up</button>
-                  </div>
-
-                  <div style={{ marginBottom: 8, display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid #d8e5da", background: "#f2f8f3", borderRadius: 999, padding: "5px 9px", fontSize: 11, color: "#2d5a4d", fontWeight: 700 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2d5a4d" }} />
-                    Auth mode: {authRuntime.mode === "supabase" ? "Supabase" : "Local Offline"}
-                  </div>
-                  {showAuthPromo && <p style={{ color: "var(--muted)", fontSize: 11, marginBottom: 12 }}>{authRuntime.detail}</p>}
-
+                {/* Form fields */}
+                <div style={{ display: "grid", gap: 14 }}>
                   {authMode === "signup" && (
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Full name</label>
+                    <div>
+                      <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 5, fontWeight: 600, letterSpacing: 0.4 }}>Full Name</label>
                       <input
+                        type="text"
                         value={authForm.name}
-                        onChange={(e) => setAuthForm((s) => ({ ...s, name: e.target.value }))}
-                        placeholder="Jane Njeri"
-                        style={{ width: "100%", border: `1px solid ${authErrors.name ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
+                        onChange={e => setAuthForm(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="Your full name"
+                        autoComplete="name"
+                        style={{ width: "100%", border: `1.5px solid ${authErrors.name ? "#ef4444" : "var(--line)"}`, borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none", boxSizing: "border-box" }}
+                        onKeyDown={e => e.key === "Enter" && submitAuth()}
                       />
-                      {authErrors.name && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.name}</div>}
+                      {authErrors.name && <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>{authErrors.name}</p>}
                     </div>
                   )}
 
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Email</label>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 5, fontWeight: 600, letterSpacing: 0.4 }}>Email address</label>
                     <input
+                      type="email"
                       value={authForm.email}
-                      disabled
-                      style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 13px", fontSize: 14, background: "#f5f5f5", color: "var(--muted)" }}
+                      onChange={e => setAuthForm(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      style={{ width: "100%", border: `1.5px solid ${authErrors.email ? "#ef4444" : "var(--line)"}`, borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none", boxSizing: "border-box" }}
+                      onKeyDown={e => e.key === "Enter" && submitAuth()}
                     />
+                    {authErrors.email && <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>{authErrors.email}</p>}
                   </div>
 
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Password</label>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                      <label style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, letterSpacing: 0.4 }}>Password</label>
+                      {authMode === "signin" && (
+                        <button type="button" onClick={requestPasswordReset} disabled={authPending} style={{ background: "none", border: "none", color: "#2d5a4d", fontSize: 12, cursor: "pointer", padding: 0, fontWeight: 600 }}>
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="password"
                       value={authForm.password}
-                      onChange={(e) => setAuthForm((s) => ({ ...s, password: e.target.value }))}
-                      placeholder="At least 8 characters"
-                      style={{ width: "100%", border: `1px solid ${authErrors.password ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
+                      onChange={e => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder={authMode === "signup" ? "Min. 8 characters" : "Your password"}
+                      autoComplete={authMode === "signup" ? "new-password" : "current-password"}
+                      style={{ width: "100%", border: `1.5px solid ${authErrors.password ? "#ef4444" : "var(--line)"}`, borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none", boxSizing: "border-box" }}
+                      onKeyDown={e => e.key === "Enter" && submitAuth()}
                     />
-                    {authErrors.password && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.password}</div>}
+                    {authErrors.password && <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>{authErrors.password}</p>}
                   </div>
 
                   {authMode === "signup" && (
-                    <div style={{ marginBottom: 14 }}>
-                      <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Confirm password</label>
+                    <div>
+                      <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 5, fontWeight: 600, letterSpacing: 0.4 }}>Confirm Password</label>
                       <input
                         type="password"
                         value={authForm.confirmPassword}
-                        onChange={(e) => setAuthForm((s) => ({ ...s, confirmPassword: e.target.value }))}
-                        placeholder="Repeat password"
-                        style={{ width: "100%", border: `1px solid ${authErrors.confirmPassword ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
+                        onChange={e => setAuthForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        placeholder="Repeat your password"
+                        autoComplete="new-password"
+                        style={{ width: "100%", border: `1.5px solid ${authErrors.confirmPassword ? "#ef4444" : "var(--line)"}`, borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none", boxSizing: "border-box" }}
+                        onKeyDown={e => e.key === "Enter" && submitAuth()}
                       />
-                      {authErrors.confirmPassword && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.confirmPassword}</div>}
+                      {authErrors.confirmPassword && <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>{authErrors.confirmPassword}</p>}
                     </div>
                   )}
 
-                  {authMode === "signin" && (
-                    <button onClick={() => { setAuthPanel("forgot"); setAuthErrors({}); setAuthMsg(""); setRecoveryEmail(authForm.email || ""); }} style={{ background: "none", border: "none", padding: 0, marginBottom: 12, color: "#2d5a4d", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                      Forgot your password?
+                  <button
+                    type="button"
+                    onClick={submitAuth}
+                    disabled={authPending}
+                    style={{ ...solidBtn, width: "100%", justifyContent: "center", opacity: authPending ? 0.65 : 1, padding: "13px 20px", fontSize: 15 }}
+                  >
+                    {authPending ? "Please wait..." : authMode === "signin" ? "Sign in" : "Create account"}
+                  </button>
+
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
+                      <span style={{ height: 1, background: "var(--line)" }} />
+                      <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>or continue with</span>
+                      <span style={{ height: 1, background: "var(--line)" }} />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => signInWithSocial("oauth_google")}
+                      disabled={authPending}
+                      style={{ ...outlineBtn, width: "100%", justifyContent: "center", opacity: authPending ? 0.65 : 1 }}
+                    >
+                      Continue with Google
                     </button>
-                  )}
 
-                  {authMsg && <div style={{ marginBottom: 12, borderRadius: 10, padding: "10px 12px", background: "#fff7e6", color: "#8a5a00", border: "1px solid #f2dfb2", fontSize: 13 }}>{authMsg}</div>}
+                    <button
+                      type="button"
+                      onClick={() => signInWithSocial("oauth_apple")}
+                      disabled={authPending}
+                      style={{ ...outlineBtn, width: "100%", justifyContent: "center", opacity: authPending ? 0.65 : 1 }}
+                    >
+                      Continue with Apple
+                    </button>
+                  </div>
+                </div>
 
-                  <button onClick={submitAuth} style={{ width: "100%", border: "none", borderRadius: 11, background: "var(--ink)", color: "#fff", padding: "13px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 10 }}>
-                    {authMode === "signin" ? "Sign in" : "Create account"}
+                <div style={{ marginTop: 16, textAlign: "center" }}>
+                  <button
+                    onClick={() => { setAuthMode(authMode === "signin" ? "signup" : "signin"); setAuthErrors({}); setAuthMsg(""); setAuthForm({ name: "", email: authForm.email, password: "", confirmPassword: "" }); }}
+                    style={{ background: "none", border: "none", color: "#2d5a4d", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    {authMode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
                   </button>
-                </>
-              )}
-
-              {authPanel === "forgot" && (
-                <>
-                  <div style={{ marginBottom: 8, display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid #d8e5da", background: "#f2f8f3", borderRadius: 999, padding: "5px 9px", fontSize: 11, color: "#2d5a4d", fontWeight: 700 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2d5a4d" }} />
-                    Auth mode: {authRuntime.mode === "supabase" ? "Supabase" : "Local Offline"}
-                  </div>
-                  {showAuthPromo && <p style={{ color: "var(--muted)", fontSize: 11, marginBottom: 12 }}>{authRuntime.detail}</p>}
-
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Account email</label>
-                    <input
-                      value={recoveryEmail}
-                      onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      style={{ width: "100%", border: `1px solid ${authErrors.email ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
-                    />
-                    {authErrors.email && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.email}</div>}
-                  </div>
-                  {authMsg && <div style={{ marginBottom: 12, borderRadius: 10, padding: "10px 12px", background: "#fff7e6", color: "#8a5a00", border: "1px solid #f2dfb2", fontSize: 13 }}>{authMsg}</div>}
-                  <button onClick={requestPasswordReset} style={{ width: "100%", border: "none", borderRadius: 11, background: "var(--ink)", color: "#fff", padding: "13px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 10 }}>
-                    Send reset link
+                </div>
+                <div style={{ marginTop: 8, textAlign: "center" }}>
+                  <button
+                    onClick={() => setPage("home")}
+                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Back to Nafuu Mart
                   </button>
-                </>
-              )}
-
-              {authPanel === "reset" && (
-                <>
-                  <div style={{ marginBottom: 8, display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid #d8e5da", background: "#f2f8f3", borderRadius: 999, padding: "5px 9px", fontSize: 11, color: "#2d5a4d", fontWeight: 700 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2d5a4d" }} />
-                    Auth mode: {authRuntime.mode === "supabase" ? "Supabase" : "Local Offline"}
-                  </div>
-                  {showAuthPromo && <p style={{ color: "var(--muted)", fontSize: 11, marginBottom: 12 }}>{authRuntime.detail}</p>}
-
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>New password</label>
-                    <input
-                      type="password"
-                      value={resetForm.password}
-                      onChange={(e) => setResetForm((s) => ({ ...s, password: e.target.value }))}
-                      placeholder="At least 8 characters"
-                      style={{ width: "100%", border: `1px solid ${authErrors.password ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
-                    />
-                    {authErrors.password && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.password}</div>}
-                  </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Confirm new password</label>
-                    <input
-                      type="password"
-                      value={resetForm.confirmPassword}
-                      onChange={(e) => setResetForm((s) => ({ ...s, confirmPassword: e.target.value }))}
-                      placeholder="Repeat new password"
-                      style={{ width: "100%", border: `1px solid ${authErrors.confirmPassword ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
-                    />
-                    {authErrors.confirmPassword && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.confirmPassword}</div>}
-                  </div>
-                  {authMsg && <div style={{ marginBottom: 12, borderRadius: 10, padding: "10px 12px", background: "#fff7e6", color: "#8a5a00", border: "1px solid #f2dfb2", fontSize: 13 }}>{authMsg}</div>}
-                  <button onClick={submitPasswordReset} style={{ width: "100%", border: "none", borderRadius: 11, background: "var(--ink)", color: "#fff", padding: "13px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 10 }}>
-                    Update password
-                  </button>
-                </>
-              )}
-
-              {authPanel === "verify" && (
-                <>
-                  <div style={{ marginBottom: 8, display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid #d8e5da", background: "#f2f8f3", borderRadius: 999, padding: "5px 9px", fontSize: 11, color: "#2d5a4d", fontWeight: 700 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2d5a4d" }} />
-                    Auth mode: {authRuntime.mode === "supabase" ? "Supabase" : "Local Offline"}
-                  </div>
-                  {showAuthPromo && <p style={{ color: "var(--muted)", fontSize: 11, marginBottom: 12 }}>{authRuntime.detail}</p>}
-
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: "block", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Verification email</label>
-                    <input
-                      value={verificationEmail}
-                      onChange={(e) => setVerificationEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      style={{ width: "100%", border: `1px solid ${authErrors.email ? "#dc2626" : "var(--line)"}`, borderRadius: 10, padding: "12px 13px", fontSize: 14 }}
-                    />
-                    {authErrors.email && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 5 }}>{authErrors.email}</div>}
-                  </div>
-                  {authMsg && <div style={{ marginBottom: 12, borderRadius: 10, padding: "10px 12px", background: "#fff7e6", color: "#8a5a00", border: "1px solid #f2dfb2", fontSize: 13 }}>{authMsg}</div>}
-                  <button onClick={resendVerification} style={{ width: "100%", border: "none", borderRadius: 11, background: "var(--ink)", color: "#fff", padding: "13px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 10 }}>
-                    Resend verification email
-                  </button>
-                </>
-              )}
-
-              {authPanel !== "form" && <button onClick={() => { setAuthPanel("form"); setAuthMode("signin"); setAuthStep("email"); setAuthErrors({}); setAuthMsg(""); }} style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 11, background: "#fff", color: "var(--ink)", padding: "12px 14px", fontWeight: 600, fontSize: 14, cursor: "pointer", marginBottom: 10 }}>
-                Back to sign in
-              </button>}
-
-              {authPanel === "form" && authStep === "password" && (
-                <>
-                  <button onClick={() => setPage("home")} style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 11, background: "#fff", color: "var(--ink)", padding: "12px 14px", fontWeight: 600, fontSize: 14, cursor: "pointer", marginBottom: 8 }}>
-                    Continue as guest
-                  </button>
-
-                  <p style={{ marginTop: 8, color: "var(--muted)", fontSize: 11, lineHeight: 1.5, textAlign: "center" }}>
-                    By continuing, you agree to Nafuu Terms of Service and acknowledge our Privacy Policy.
-                  </p>
-                  {showAuthPromo && isSupabaseMode() && <p style={{ marginTop: 6, color: "var(--muted)", fontSize: 10, lineHeight: 1.4 }}>
-                    Supabase email templates should use your app URL as redirect for recovery and confirmation.
-                  </p>}
-                </>
-              )}
+                </div>
+              </div>
             </section>
           </div>
         </div>
@@ -3662,7 +6636,22 @@ export default function App() {
     );
   }
 
-  return null;
+  return (
+    <>
+      <style>{G}</style>
+      {Nav()}
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "44px 24px" }}>
+        <div style={{ ...panel, border: "1px solid #fed7aa", background: "#fff7ed" }}>
+          <h1 style={{ ...h2, marginBottom: 8 }}>Page could not be loaded</h1>
+          <p style={{ ...pMuted, marginBottom: 12 }}>
+            The current view is unavailable. Return home and continue shopping.
+          </p>
+          <button onClick={() => setPage("home")} style={solidBtn}>Go to Home</button>
+        </div>
+      </div>
+      <Footer />
+    </>
+  );
 }
 
 function ProductCard({
@@ -3752,7 +6741,7 @@ function ProductCard({
           style={{ border: `2px solid ${inComparison ? "var(--green)" : "var(--line)"}`, background: inComparison ? "#f0fdf4" : "white", color: inComparison ? "var(--green)" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
           title={inComparison ? "Remove from comparison" : "Add to comparison"}
         >
-          ⚖️ Compare
+          �s-️ Compare
         </button>
         <button
           onClick={(e) => {
@@ -3762,7 +6751,7 @@ function ProductCard({
           style={{ border: `2px solid ${hasAlert ? "#f59e0b" : "var(--line)"}`, background: hasAlert ? "#fffbeb" : "white", color: hasAlert ? "#f59e0b" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
           title={hasAlert ? "Remove stock alert" : "Notify when in stock"}
         >
-          🔔 Alert
+          �Y"" Alert
         </button>
       </div>
       
@@ -3805,7 +6794,6 @@ function Field({ label, value, onChange, error, multiline = false }) {
   );
 }
 
-const navBtn = { background: "none", border: "none", cursor: "pointer", color: "var(--ink-soft)", fontWeight: 600, padding: "8px 12px", borderRadius: 8 };
 const topLink = { background: "none", border: "none", cursor: "pointer", color: "var(--ink)", fontWeight: 600, fontSize: 14, padding: 0 };
 const topNavItem = { background: "none", border: "none", cursor: "pointer", color: "var(--ink)", fontWeight: 600, fontSize: 15, padding: "10px 0", borderBottom: "2px solid transparent", transition: "all .2s ease" };
 const actionBtn = { background: "white", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 16px", fontWeight: 600, fontSize: 14, color: "var(--ink)", cursor: "pointer", transition: "all .2s ease" };
@@ -3833,3 +6821,5 @@ const chipBtn = (active) => ({
   fontSize: 12,
   fontWeight: 600,
 });
+
+

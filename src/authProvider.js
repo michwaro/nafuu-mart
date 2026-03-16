@@ -1,269 +1,181 @@
-import { createClient } from "@supabase/supabase-js";
+/**
+ * Clerk-only authentication provider.
+ * Clerk handles all user management, password resets, social sign-in, and session persistence.
+ */
 
-const LOCAL_USERS_KEY = "nafuu-users";
-const LOCAL_SESSION_KEY = "nafuu-session";
-const LOCAL_RESET_EMAIL_KEY = "nafuu-reset-email";
+const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-const envMode = (import.meta.env.VITE_AUTH_MODE || "auto").toLowerCase();
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+/**
+ * Verify Clerk configuration is available.
+ * Throws if VITE_CLERK_PUBLISHABLE_KEY is missing.
+ */
+const ensureClerkConfig = () => {
+  if (!clerkPublishableKey) {
+    throw new Error("VITE_CLERK_PUBLISHABLE_KEY is not configured. Add it to .env and restart the app.");
+  }
+};
 
-const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-const canUseSupabase = envMode === "supabase" || (envMode === "auto" && hasSupabaseConfig);
+/**
+ * Convert Clerk user object to normalized Nafuu user.
+ */
+const normalizeUser = (clerkUser) => {
+  if (!clerkUser) return null;
 
-const supabase = canUseSupabase
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
-  : null;
+  const email = clerkUser.primaryEmailAddress?.emailAddress || clerkUser.emailAddresses?.[0]?.emailAddress || "";
+  const adminEmails = ["admin@nafuumart.com", "admin@nafuumart.co.ke"];
+  const isAdmin = adminEmails.includes(email.toLowerCase());
 
-const normalizeUser = (user) => {
-  if (!user) return null;
   return {
-    name: user.user_metadata?.name || user.email?.split("@")[0] || "Nafuu User",
-    email: user.email || "",
-    isAdmin: Boolean(user.user_metadata?.isAdmin),
+    name:
+      clerkUser.firstName && clerkUser.lastName
+        ? `${clerkUser.firstName} ${clerkUser.lastName}`
+        : clerkUser.firstName
+        ? clerkUser.firstName
+        : email.split("@")[0] || "Nafuu User",
+    email,
+    isAdmin,
   };
 };
 
-const getLocalUsers = () => {
-  try {
-    const raw = window.localStorage.getItem(LOCAL_USERS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const setLocalUsers = (users) => {
-  window.localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
-};
-
-const getLocalSession = () => {
-  try {
-    const raw = window.localStorage.getItem(LOCAL_SESSION_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed?.email ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-const setLocalSession = (session) => {
-  window.localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session));
-};
-
-const clearLocalSession = () => {
-  window.localStorage.removeItem(LOCAL_SESSION_KEY);
-};
-
-const setLocalResetEmail = (email) => {
-  window.localStorage.setItem(LOCAL_RESET_EMAIL_KEY, email);
-};
-
-const getLocalResetEmail = () => {
-  return window.localStorage.getItem(LOCAL_RESET_EMAIL_KEY) || "";
-};
-
-const clearLocalResetEmail = () => {
-  window.localStorage.removeItem(LOCAL_RESET_EMAIL_KEY);
-};
-
-const signInLocal = ({ email, password }) => {
-  const users = getLocalUsers();
-  const match = users.find((u) => u.email === email && u.password === password);
-  if (!match) throw new Error("Incorrect email or password. Please try again.");
-
-  const user = { name: match.name, email: match.email, isAdmin: Boolean(match.isAdmin) };
-  setLocalSession(user);
-  return { user, provider: "local" };
-};
-
-const signUpLocal = ({ name, email, password }) => {
-  const users = getLocalUsers();
-  const exists = users.some((u) => u.email === email);
-  if (exists) throw new Error("An account with this email already exists. Sign in instead.");
-
-  // First user or specific emails become admin
-  const adminEmails = ["admin@nafuumart.com", "admin@nafuumart.co.ke"];
-  const isAdmin = users.length === 0 || adminEmails.includes(email.toLowerCase());
-  const profile = { name, email, password, isAdmin, createdAt: Date.now() };
-  setLocalUsers([profile, ...users]);
-  const user = { name: profile.name, email: profile.email, isAdmin };
-  setLocalSession(user);
-  return { user, provider: "local", pendingConfirmation: false };
-};
-
+/**
+ * Get Clerk auth runtime status.
+ */
 export const getAuthRuntime = () => {
-  if (canUseSupabase) {
+  if (!clerkPublishableKey) {
     return {
-      mode: "supabase",
-      detail: "Supabase auth is active.",
+      mode: "clerk",
+      detail: "Clerk is not configured. Set VITE_CLERK_PUBLISHABLE_KEY in .env",
+      ready: false,
     };
   }
-
   return {
-    mode: "local",
-    detail: hasSupabaseConfig
-      ? "Offline mode active by configuration."
-      : "Offline-first local auth active (no Supabase keys found).",
+    mode: "clerk",
+    detail: "Clerk authentication is configured.",
+    ready: true,
   };
 };
 
-export const isSupabaseMode = () => Boolean(supabase);
-
+/**
+ * Restore the current Clerk session.
+ * Clerk persists sessions automatically, so this just normalizes the current user.
+ */
 export const restoreSession = async () => {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-      const user = normalizeUser(data?.session?.user);
-      if (user) return { user, provider: "supabase" };
-    } catch {
-      if (envMode === "supabase") throw new Error("Could not restore Supabase session.");
+  try {
+    ensureClerkConfig();
+    const clerkUser = window.Clerk?.user;
+    if (!clerkUser) {
+      return { user: null, provider: "clerk" };
     }
+    return { user: normalizeUser(clerkUser), provider: "clerk" };
+  } catch {
+    return { user: null, provider: "clerk" };
   }
-
-  const user = getLocalSession();
-  return { user, provider: "local" };
 };
 
-export const authSignIn = async ({ email, password }) => {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      const user = normalizeUser(data?.user);
-      if (!user) throw new Error("Sign-in failed. Please try again.");
-      return { user, provider: "supabase" };
-    } catch (err) {
-      if (envMode === "supabase") throw new Error(err.message || "Supabase sign-in failed.");
-    }
-  }
-
-  return signInLocal({ email, password });
+/**
+ * Sign in via Clerk using email/password.
+ * This is handled by Clerk's <SignIn /> UI component.
+ * Kept for API compatibility but delegates to Clerk UI.
+ */
+export const authSignIn = async () => {
+  ensureClerkConfig();
+  throw new Error("Use the Clerk <SignIn /> UI component for sign-in. Email/password auth is handled by Clerk.");
 };
 
-export const authSignUp = async ({ name, email, password }) => {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name },
-        },
-      });
-      if (error) throw error;
-
-      const user = normalizeUser(data?.user);
-      const pendingConfirmation = Boolean(data?.user && !data?.session);
-
-      if (!user) throw new Error("Sign-up failed. Please try again.");
-      return { user, provider: "supabase", pendingConfirmation };
-    } catch (err) {
-      if (envMode === "supabase") throw new Error(err.message || "Supabase sign-up failed.");
-    }
-  }
-
-  return signUpLocal({ name, email, password });
+/**
+ * Sign up via Clerk using email/password.
+ * This is handled by Clerk's <SignUp /> UI component.
+ * Kept for API compatibility but delegates to Clerk UI.
+ */
+export const authSignUp = async () => {
+  ensureClerkConfig();
+  throw new Error("Use the Clerk <SignUp /> UI component for sign-up. Email/password auth is handled by Clerk.");
 };
 
+/**
+ * Sign out the current user from Clerk.
+ */
 export const authSignOut = async () => {
-  if (supabase) {
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      if (envMode === "supabase") throw new Error("Unable to sign out from Supabase.");
+  try {
+    ensureClerkConfig();
+    if (window.Clerk) {
+      await window.Clerk.signOut();
+      return true;
     }
+  } catch (err) {
+    console.error("Clerk sign-out error:", err);
   }
-
-  clearLocalSession();
   return true;
 };
 
-export const authRequestPasswordReset = async ({ email, redirectTo }) => {
-  if (supabase) {
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo,
-      });
-      if (error) throw error;
-      return { provider: "supabase", sent: true };
-    } catch (err) {
-      if (envMode === "supabase") throw new Error(err.message || "Could not send password reset email.");
-    }
-  }
-
-  const users = getLocalUsers();
-  const exists = users.some((u) => u.email === email);
-  if (exists) setLocalResetEmail(email);
-  return { provider: "local", sent: true, simulated: true };
+/**
+ * Request a password reset via Clerk.
+ * This is handled by Clerk's <ForgotPassword /> UI component.
+ * Kept for API compatibility but delegates to Clerk UI.
+ */
+export const authRequestPasswordReset = async () => {
+  ensureClerkConfig();
+  throw new Error("Use the Clerk <ForgotPassword /> UI component for password reset.");
 };
 
-export const authUpdatePassword = async ({ password }) => {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
-      const user = normalizeUser(data?.user);
-      return { provider: "supabase", user };
-    } catch (err) {
-      if (envMode === "supabase") throw new Error(err.message || "Could not update password.");
-    }
-  }
-
-  const targetEmail = getLocalResetEmail() || getLocalSession()?.email;
-  if (!targetEmail) throw new Error("In local mode, request a password reset first.");
-
-  const users = getLocalUsers();
-  const idx = users.findIndex((u) => u.email === targetEmail);
-  if (idx === -1) throw new Error("Account not found for password reset.");
-
-  users[idx] = { ...users[idx], password };
-  setLocalUsers(users);
-  clearLocalResetEmail();
-  return { provider: "local", user: { name: users[idx].name, email: users[idx].email } };
+/**
+ * Update user password via Clerk.
+ * This is handled by Clerk's <UserProfile /> component (Account tab).
+ * Kept for API compatibility but delegates to Clerk UI.
+ */
+export const authUpdatePassword = async () => {
+  ensureClerkConfig();
+  throw new Error("Use the Clerk <UserProfile /> component to update password.");
 };
 
-export const authResendVerification = async ({ email, redirectTo }) => {
-  if (supabase) {
-    try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email,
-        options: { emailRedirectTo: redirectTo },
-      });
-      if (error) throw error;
-      return { provider: "supabase", sent: true };
-    } catch (err) {
-      if (envMode === "supabase") throw new Error(err.message || "Could not resend verification email.");
-    }
-  }
-
-  return { provider: "local", sent: true, simulated: true };
+/**
+ * Resend verification email via Clerk.
+ * This is handled by Clerk automatically after sign-up.
+ * Kept for API compatibility but delegates to Clerk UI.
+ */
+export const authResendVerification = async () => {
+  ensureClerkConfig();
+  throw new Error("Clerk handles email verification automatically.");
 };
 
-export const authSignInWithOAuth = async ({ provider, redirectTo }) => {
-  if (!supabase) {
-    throw new Error("Social sign-in is available only when Supabase mode is active.");
+/**
+ * Subscribe to Clerk user state changes.
+ * Returns an unsubscribe function.
+ */
+export const authSubscribeToAuthChanges = (callback) => {
+  if (!window.Clerk) {
+    return () => {};
   }
 
   try {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo,
-      },
-    });
-    if (error) throw error;
-    return { provider: "supabase", started: true };
-  } catch (err) {
-    throw new Error(err.message || "Could not start social sign-in.");
+    const { user } = window.Clerk;
+    if (user) {
+      callback(normalizeUser(user));
+    }
+
+    // Clerk updates are pushed via session changes.
+    // Listen for Clerk load and navigate events if available.
+    const handleClerkLoad = () => {
+      const updated = window.Clerk?.user;
+      if (updated) {
+        callback(normalizeUser(updated));
+      }
+    };
+
+    // If Clerk emits custom events, listen to them
+    if (typeof window.addEventListener === "function") {
+      window.addEventListener("clerk:loaded", handleClerkLoad);
+      window.addEventListener("clerk:updated", handleClerkLoad);
+
+      return () => {
+        window.removeEventListener("clerk:loaded", handleClerkLoad);
+        window.removeEventListener("clerk:updated", handleClerkLoad);
+      };
+    }
+
+    return () => {};
+  } catch {
+    return () => {};
   }
 };
+

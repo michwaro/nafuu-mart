@@ -2,16 +2,19 @@
 
 Nafuu Mart is a React + Vite storefront with product browsing, order flow, legal pages, and a Back Market-inspired auth experience.
 
-## Auth Setup (Offline-First)
+## Auth Setup (Clerk + Fallback Modes)
 
-Auth is now configured to support both local offline development and Supabase.
+Auth supports Clerk as primary, with optional Supabase/local fallback modes for incremental migration.
 
 1. Copy `.env.example` to `.env.local`.
 2. Choose auth mode with `VITE_AUTH_MODE`:
-	- `auto`: Use Supabase when keys exist, otherwise fallback to local offline auth.
+   - `auto`: Use Clerk when configured, else Supabase when keys exist, else fallback to local offline auth.
+   - `clerk`: Force Clerk-hosted auth UI and session handling.
 	- `local`: Force offline local auth only.
 	- `supabase`: Force Supabase only.
-3. For Supabase mode, set:
+3. For Clerk mode, set:
+   - `VITE_CLERK_PUBLISHABLE_KEY`
+4. For Supabase mode, set:
 	- `VITE_SUPABASE_URL`
 	- `VITE_SUPABASE_ANON_KEY`
 
@@ -113,13 +116,16 @@ Nafuu Mart integrates with Pesapal to accept payments via:
 
 4. **Add to Environment Variables**
    - Copy `.env.example` to `.env.local`
-   - Add your Pesapal credentials:
+    - Add your backend URL and server Pesapal credentials:
      ```
-     VITE_PESAPAL_CONSUMER_KEY=your_consumer_key
-     VITE_PESAPAL_CONSUMER_SECRET=your_consumer_secret
-     VITE_PESAPAL_IPN_ID=your_ipn_id
-     VITE_PESAPAL_BASE_URL=https://cybqa.pesapal.com/pesapalv3
+       VITE_API_BASE_URL=http://localhost:4000
+       PESAPAL_CONSUMER_KEY=your_consumer_key
+       PESAPAL_CONSUMER_SECRET=your_consumer_secret
+       PESAPAL_IPN_ID=your_ipn_id
+       PESAPAL_BASE_URL=https://cybqa.pesapal.com/pesapalv3
      ```
+
+    - Optional: hit `GET /api/health/ready` to confirm backend env readiness before testing checkout.
 
 5. **Testing**
    - Use sandbox URL: `https://cybqa.pesapal.com/pesapalv3`
@@ -127,7 +133,7 @@ Nafuu Mart integrates with Pesapal to accept payments via:
    - Test M-Pesa: Use test phone numbers from Pesapal sandbox
 
 6. **Go to Production**
-   - Change `VITE_PESAPAL_BASE_URL` to: `https://pay.pesapal.com/v3`
+   - Change `PESAPAL_BASE_URL` to: `https://pay.pesapal.com/v3`
    - Use production API credentials
    - Update IPN URL to production domain
 

@@ -1,0 +1,16 @@
+# Nafuu Mart Robots Configuration
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /checkout
+Disallow: /api/
+Allow: /api/products
+Allow: /api/health
+
+# Specific crawl delays
+Crawl-delay: 1
+Request-rate: 30/1m
+
+# Sitemaps
+Sitemap: https://nafuu-mart.com/sitemap.xml
+Sitemap: https://nafuu-mart.com/sitemap-products.xml
