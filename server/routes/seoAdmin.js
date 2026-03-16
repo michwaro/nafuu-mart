@@ -53,51 +53,213 @@ const buildUniqueBlogSlug = async (sql, baseSlug, excludeId = null) => {
   }
 };
 
-// Compute a 0-100 SEO score for a blog article based on keyword presence,
-// meta lengths, excerpt, and content word count.
+const STRIP_HTML_RE = /<[^>]+>/g;
+const HREF_RE = /href\s*=\s*["']([^"']+)["']/gi;
+const HEADING_RE = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi;
+const TRANSITION_WORDS = [
+  "however",
+  "therefore",
+  "moreover",
+  "meanwhile",
+  "additionally",
+  "consequently",
+  "for example",
+  "for instance",
+  "in addition",
+  "finally",
+  "instead",
+  "because",
+  "although",
+];
+const POWER_WORDS = [
+  "proven",
+  "ultimate",
+  "best",
+  "easy",
+  "powerful",
+  "smart",
+  "fast",
+  "quick",
+  "essential",
+  "simple",
+];
+const CTA_PHRASES = [
+  "learn more",
+  "get started",
+  "shop now",
+  "try now",
+  "discover",
+  "sign up",
+  "book now",
+  "read more",
+  "contact us",
+];
+const DEFAULT_COMPETITOR_BENCHMARK = {
+  wordCount: 1200,
+  headingCount: 6,
+  internalLinks: 5,
+  externalLinks: 2,
+  keywordDensityMin: 0.8,
+  keywordDensityMax: 2.2,
+  metaTitleMin: 45,
+  metaTitleMax: 65,
+  metaDescriptionMin: 120,
+  metaDescriptionMax: 155,
+};
+
+const safeParseBenchmark = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const getCompetitorBenchmark = () => {
+  const parsed = safeParseBenchmark(process.env.SEO_COMPETITOR_BENCHMARK_JSON);
+  return { ...DEFAULT_COMPETITOR_BENCHMARK, ...(parsed || {}) };
+};
+
+const stripHtml = (html = "") => String(html || "").replace(STRIP_HTML_RE, " ");
+
+const toWords = (text = "") =>
+  String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+
+const countPhrase = (text = "", phrase = "") => {
+  const haystack = String(text || "").toLowerCase();
+  const needle = String(phrase || "").toLowerCase().trim();
+  if (!needle) return 0;
+  let idx = 0;
+  let count = 0;
+  while (true) {
+    const found = haystack.indexOf(needle, idx);
+    if (found === -1) break;
+    count += 1;
+    idx = found + needle.length;
+  }
+  return count;
+};
+
+const extractLinks = (html = "") => {
+  const links = [];
+  const text = String(html || "");
+  let match;
+  while ((match = HREF_RE.exec(text)) !== null) {
+    links.push(match[1]);
+  }
+  return links;
+};
+
+const extractHeadings = (html = "") => {
+  const headings = [];
+  const text = String(html || "");
+  let match;
+  while ((match = HEADING_RE.exec(text)) !== null) {
+    headings.push(stripHtml(match[1]).trim().toLowerCase());
+  }
+  return headings;
+};
+
+const roundInt = (n) => Math.round(Number(n) || 0);
+
+// Multi-signal SEO scoring inspired by Yoast/Rank Math/Jasper style checks,
+// plus competitor benchmark gap scoring.
 const computeBlogSeoScore = ({
   title = "",
+  slug = "",
   metaTitle = "",
   metaDescription = "",
   excerpt = "",
   content = "",
   focusKeyword = "",
 } = {}) => {
-  let score = 0;
-  const kw = focusKeyword.toLowerCase().trim();
+  const benchmark = getCompetitorBenchmark();
+  const kw = String(focusKeyword || "").trim().toLowerCase();
+  const plainText = stripHtml(content);
+  const words = toWords(plainText);
+  const wordCount = words.length;
+  const introWordsText = words.slice(0, 120).join(" ");
+  const headings = extractHeadings(content);
+  const links = extractLinks(content);
+  const internalLinks = links.filter((href) => /^\/|^#|nafuu-mart\.com/i.test(href));
+  const externalLinks = links.filter((href) => /^https?:\/\//i.test(href) && !/nafuu-mart\.com/i.test(href));
+  const sentenceCount = Math.max(1, plainText.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean).length);
+  const avgSentenceLength = wordCount / sentenceCount;
 
-  // Keyword presence (20 pts)
+  const keywordHits = kw ? countPhrase(plainText, kw) : 0;
+  const keywordDensity = wordCount > 0 ? (keywordHits / wordCount) * 100 : 0;
+  const transitionHitCount = TRANSITION_WORDS.reduce((sum, token) => sum + countPhrase(plainText, token), 0);
+  const transitionPerSentence = transitionHitCount / sentenceCount;
+  const titleLower = String(title || "").toLowerCase();
+  const slugLower = String(slug || "").toLowerCase();
+  const metaTitleLower = String(metaTitle || title || "").toLowerCase();
+
+  let yoast = 0;
+  if (kw && titleLower.includes(kw)) yoast += 8;
+  if (kw && introWordsText.includes(kw)) yoast += 6;
   if (kw) {
-    score += 10;
-    if (title.toLowerCase().includes(kw)) score += 5;
-    if (metaDescription.toLowerCase().includes(kw)) score += 5;
+    if (keywordDensity >= benchmark.keywordDensityMin && keywordDensity <= benchmark.keywordDensityMax) yoast += 10;
+    else if (keywordDensity > 0.3 && keywordDensity <= benchmark.keywordDensityMax * 1.5) yoast += 5;
   }
+  if (avgSentenceLength <= 20) yoast += 6;
+  else if (avgSentenceLength <= 24) yoast += 3;
+  if (transitionPerSentence >= 0.3) yoast += 5;
+  else if (transitionPerSentence >= 0.15) yoast += 3;
+  if (metaDescription.length >= benchmark.metaDescriptionMin && metaDescription.length <= benchmark.metaDescriptionMax) yoast += 5;
 
-  // Meta title length: 40-70 is ideal (25 pts)
-  const mt = (metaTitle || title).trim();
-  if (mt.length >= 40 && mt.length <= 70) score += 25;
-  else if (mt.length >= 30 && mt.length < 40) score += 15;
-  else if (mt.length > 70 && mt.length <= 85) score += 10;
+  let rankMath = 0;
+  if (kw && slugLower.includes(kw)) rankMath += 6;
+  if (kw && headings.some((h) => h.includes(kw))) rankMath += 6;
+  const mtLen = String(metaTitle || title || "").trim().length;
+  if (mtLen >= benchmark.metaTitleMin && mtLen <= benchmark.metaTitleMax) rankMath += 6;
+  else if (mtLen >= 30 && mtLen <= 75) rankMath += 3;
+  if (wordCount >= benchmark.wordCount) rankMath += 7;
+  else if (wordCount >= Math.round(benchmark.wordCount * 0.6)) rankMath += 4;
+  if (internalLinks.length >= benchmark.internalLinks) rankMath += 5;
+  else if (internalLinks.length >= Math.max(1, Math.floor(benchmark.internalLinks / 2))) rankMath += 3;
+  if (externalLinks.length >= benchmark.externalLinks) rankMath += 3;
+  else if (externalLinks.length >= 1) rankMath += 2;
+  if (excerpt.trim().length >= 80) rankMath += 2;
+  else if (excerpt.trim().length > 0) rankMath += 1;
 
-  // Meta description length: 100-160 is ideal (25 pts)
-  const md = metaDescription.trim();
-  if (md.length >= 100 && md.length <= 160) score += 25;
-  else if (md.length >= 70 && md.length < 100) score += 15;
-  else if (md.length > 160 && md.length <= 200) score += 10;
+  let jasper = 0;
+  if (POWER_WORDS.some((token) => titleLower.includes(token) || metaTitleLower.includes(token))) jasper += 5;
+  if (CTA_PHRASES.some((token) => plainText.toLowerCase().includes(token))) jasper += 5;
+  if (/[?]/.test(title) || headings.some((h) => h.includes("how ") || h.includes("why ") || h.includes("what "))) jasper += 2;
+  if (avgSentenceLength <= 18) jasper += 3;
 
-  // Excerpt present (10 pts)
-  if (excerpt.trim().length > 0) score += 10;
+  let competitive = 0;
+  const contentRatio = Math.min(1, benchmark.wordCount > 0 ? wordCount / benchmark.wordCount : 0);
+  competitive += 3 * contentRatio;
+  const headingRatio = Math.min(1, benchmark.headingCount > 0 ? headings.length / benchmark.headingCount : 0);
+  competitive += 2 * headingRatio;
+  const internalRatio = Math.min(1, benchmark.internalLinks > 0 ? internalLinks.length / benchmark.internalLinks : 0);
+  competitive += 3 * internalRatio;
+  const externalRatio = Math.min(1, benchmark.externalLinks > 0 ? externalLinks.length / benchmark.externalLinks : 0);
+  competitive += 2 * externalRatio;
 
-  // Content word count (20 pts)
-  const wordCount = content
-    .replace(/<[^>]+>/g, " ")
-    .split(/\s+/)
-    .filter(Boolean).length;
-  if (wordCount >= 600) score += 20;
-  else if (wordCount >= 300) score += 12;
-  else if (wordCount >= 100) score += 6;
+  const total = Math.min(100, Math.max(0, roundInt(yoast + rankMath + jasper + competitive)));
 
-  return Math.min(100, Math.max(0, score));
+  return {
+    score: total,
+    breakdown: {
+      yoast: roundInt(yoast),
+      rankMath: roundInt(rankMath),
+      jasper: roundInt(jasper),
+      competitive: roundInt(competitive),
+      keywordDensity: Number(keywordDensity.toFixed(2)),
+      wordCount,
+      headingCount: headings.length,
+      internalLinkCount: internalLinks.length,
+      externalLinkCount: externalLinks.length,
+    },
+    internalLinks: internalLinks.slice(0, 25),
+  };
 };
 
 export const ensurePostPublishFollowUpTask = async (sql, article = {}, actorId = "system") => {
@@ -485,7 +647,13 @@ export const createAdminSeoTask = async ({ headers = {}, body = {} } = {}) => {
       )
     `;
 
-    return { status: 201, body: { ok: true, item: rows[0] } };
+    return {
+      status: 201,
+      body: {
+        ok: true,
+        item: rows[0],
+      },
+    };
   } catch (error) {
     return { status: 500, body: { ok: false, message: error?.message || "Failed to create SEO task" } };
   }
@@ -698,7 +866,15 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
   const requestedPublishedAt = toIsoOrNull(body.publishedAt);
   const publishedAt = status === "published" ? requestedPublishedAt || new Date().toISOString() : null;
   const id = createId("blog");
-  const seoScore = computeBlogSeoScore({ title, metaTitle, metaDescription, excerpt, content, focusKeyword });
+  const seoSignals = computeBlogSeoScore({
+    title,
+    slug: requestedSlug,
+    metaTitle,
+    metaDescription,
+    excerpt,
+    content,
+    focusKeyword,
+  });
 
   try {
     const sql = getNeonSql();
@@ -717,6 +893,7 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
         meta_title,
         meta_description,
         seo_score,
+        internal_links,
         created_by,
         published_at,
         updated_at
@@ -731,7 +908,8 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
         ${focusKeyword || null},
         ${metaTitle || null},
         ${metaDescription || null},
-        ${seoScore},
+        ${seoSignals.score},
+        ${JSON.stringify(seoSignals.internalLinks || [])},
         ${actorId},
         ${publishedAt},
         NOW()
@@ -759,7 +937,14 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
       await ensurePostPublishFollowUpTask(sql, rows[0], actorId);
     }
 
-    return { status: 201, body: { ok: true, item: rows[0] } };
+    return {
+      status: 201,
+      body: {
+        ok: true,
+        item: rows[0],
+        seoInsights: seoSignals.breakdown,
+      },
+    };
   } catch (error) {
     return {
       status: 500,
@@ -807,8 +992,9 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
       nextStatus === "published"
         ? requestedPublishedAt || new Date().toISOString()
         : null;
-    const nextSeoScore = computeBlogSeoScore({
+    const nextSeoSignals = computeBlogSeoScore({
       title: nextTitle,
+      slug: nextSlug,
       metaTitle: nextMetaTitle,
       metaDescription: nextMetaDescription,
       excerpt: nextExcerpt,
@@ -827,7 +1013,8 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
         focus_keyword = ${nextFocusKeyword || null},
         meta_title = ${nextMetaTitle || null},
         meta_description = ${nextMetaDescription || null},
-        seo_score = ${nextSeoScore},
+        seo_score = ${nextSeoSignals.score},
+        internal_links = ${JSON.stringify(nextSeoSignals.internalLinks || [])},
         published_at = ${nextPublishedAt},
         updated_at = NOW()
       WHERE id = ${articleId}
@@ -854,7 +1041,15 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
       await ensurePostPublishFollowUpTask(sql, rows[0], actorId);
     }
 
-    return { status: 200, body: { ok: true, item: rows[0], updatedBy: actorId } };
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        item: rows[0],
+        updatedBy: actorId,
+        seoInsights: nextSeoSignals.breakdown,
+      },
+    };
   } catch (error) {
     return {
       status: 500,
