@@ -16,9 +16,11 @@ import {
   runAdminBlogPublishSweep,
   ensurePostPublishFollowUpTask,
   createAdminSeoTask,
+  getAdminSeoCompetitorBenchmark,
   getAdminSeoDashboard,
   getAdminSeoTasks,
   remindAdminSeoTask,
+  upsertAdminSeoCompetitorBenchmark,
   updateAdminBlogArticle,
   updateAdminSeoTask,
 } from "./routes/seoAdmin.js";
@@ -270,6 +272,17 @@ app.get("/api/admin/seo/dashboard", (req, res) => {
 
 app.get("/api/admin/seo/tasks", (req, res) => {
   void sendHandlerResult(res, getAdminSeoTasks({ headers: req.headers, query: req.query }));
+});
+
+app.get("/api/admin/seo/competitor-benchmark", (req, res) => {
+  void sendHandlerResult(res, getAdminSeoCompetitorBenchmark({ headers: req.headers }));
+});
+
+app.put("/api/admin/seo/competitor-benchmark", (req, res) => {
+  void sendHandlerResult(
+    res,
+    upsertAdminSeoCompetitorBenchmark({ headers: req.headers, body: req.body })
+  );
 });
 
 app.get("/api/admin/blog/articles", (req, res) => {

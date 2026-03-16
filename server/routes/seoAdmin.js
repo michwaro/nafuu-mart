@@ -107,7 +107,26 @@ const DEFAULT_COMPETITOR_BENCHMARK = {
   metaDescriptionMax: 155,
 };
 
-const safeParseBenchmark = (raw) => {
+const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+const asPositiveNumber = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+const normalizeBenchmark = (input = {}) => ({
+  wordCount: roundInt(asPositiveNumber(input.wordCount, DEFAULT_COMPETITOR_BENCHMARK.wordCount)),
+  headingCount: roundInt(asPositiveNumber(input.headingCount, DEFAULT_COMPETITOR_BENCHMARK.headingCount)),
+  internalLinks: roundInt(asPositiveNumber(input.internalLinks, DEFAULT_COMPETITOR_BENCHMARK.internalLinks)),
+  externalLinks: roundInt(asPositiveNumber(input.externalLinks, DEFAULT_COMPETITOR_BENCHMARK.externalLinks)),
+  keywordDensityMin: clamp(asNumber(input.keywordDensityMin, DEFAULT_COMPETITOR_BENCHMARK.keywordDensityMin), 0.1, 10),
+  keywordDensityMax: clamp(asNumber(input.keywordDensityMax, DEFAULT_COMPETITOR_BENCHMARK.keywordDensityMax), 0.2, 15),
+  metaTitleMin: roundInt(asPositiveNumber(input.metaTitleMin, DEFAULT_COMPETITOR_BENCHMARK.metaTitleMin)),
+  metaTitleMax: roundInt(asPositiveNumber(input.metaTitleMax, DEFAULT_COMPETITOR_BENCHMARK.metaTitleMax)),
+  metaDescriptionMin: roundInt(asPositiveNumber(input.metaDescriptionMin, DEFAULT_COMPETITOR_BENCHMARK.metaDescriptionMin)),
+  metaDescriptionMax: roundInt(asPositiveNumber(input.metaDescriptionMax, DEFAULT_COMPETITOR_BENCHMARK.metaDescriptionMax)),
+});
+
+const safeParseObject = (raw) => {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
@@ -117,9 +136,68 @@ const safeParseBenchmark = (raw) => {
   }
 };
 
-const getCompetitorBenchmark = () => {
-  const parsed = safeParseBenchmark(process.env.SEO_COMPETITOR_BENCHMARK_JSON);
-  return { ...DEFAULT_COMPETITOR_BENCHMARK, ...(parsed || {}) };
+const computeMedian = (values = []) => {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) return (sorted[mid - 1] + sorted[mid]) / 2;
+  return sorted[mid];
+};
+
+const deriveBenchmarkFromSnapshots = (snapshots = []) => {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    return normalizeBenchmark(DEFAULT_COMPETITOR_BENCHMARK);
+  }
+
+  const numeric = {
+    wordCount: snapshots.map((s) => Number(s.wordCount)),
+    headingCount: snapshots.map((s) => Number(s.headingCount)),
+    internalLinks: snapshots.map((s) => Number(s.internalLinks)),
+    externalLinks: snapshots.map((s) => Number(s.externalLinks)),
+    keywordDensityMin: snapshots.map((s) => Number(s.keywordDensity)).filter((v) => v > 0),
+    keywordDensityMax: snapshots.map((s) => Number(s.keywordDensity)).filter((v) => v > 0),
+    metaTitleMin: snapshots.map((s) => Number(s.metaTitleLength)).filter((v) => v > 0),
+    metaTitleMax: snapshots.map((s) => Number(s.metaTitleLength)).filter((v) => v > 0),
+    metaDescriptionMin: snapshots.map((s) => Number(s.metaDescriptionLength)).filter((v) => v > 0),
+    metaDescriptionMax: snapshots.map((s) => Number(s.metaDescriptionLength)).filter((v) => v > 0),
+  };
+
+  const kdMedian = computeMedian(numeric.keywordDensityMin);
+  const mtMedian = computeMedian(numeric.metaTitleMin);
+  const mdMedian = computeMedian(numeric.metaDescriptionMin);
+
+  return normalizeBenchmark({
+    wordCount: computeMedian(numeric.wordCount),
+    headingCount: computeMedian(numeric.headingCount),
+    internalLinks: computeMedian(numeric.internalLinks),
+    externalLinks: computeMedian(numeric.externalLinks),
+    keywordDensityMin: kdMedian ? Math.max(0.4, kdMedian - 0.4) : undefined,
+    keywordDensityMax: kdMedian ? Math.min(4, kdMedian + 0.6) : undefined,
+    metaTitleMin: mtMedian ? Math.max(35, mtMedian - 8) : undefined,
+    metaTitleMax: mtMedian ? Math.min(80, mtMedian + 8) : undefined,
+    metaDescriptionMin: mdMedian ? Math.max(90, mdMedian - 20) : undefined,
+    metaDescriptionMax: mdMedian ? Math.min(190, mdMedian + 20) : undefined,
+  });
+};
+
+const getCompetitorBenchmark = async (sql = null) => {
+  if (sql) {
+    try {
+      const rows = await sql`
+        SELECT benchmark
+        FROM seo_competitor_benchmarks
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `;
+      if (rows[0]?.benchmark && typeof rows[0].benchmark === "object") {
+        return normalizeBenchmark({ ...DEFAULT_COMPETITOR_BENCHMARK, ...rows[0].benchmark });
+      }
+    } catch {
+      // Fall back to env/default benchmark when table is not migrated yet.
+    }
+  }
+  const parsed = safeParseObject(process.env.SEO_COMPETITOR_BENCHMARK_JSON);
+  return normalizeBenchmark({ ...DEFAULT_COMPETITOR_BENCHMARK, ...(parsed || {}) });
 };
 
 const stripHtml = (html = "") => String(html || "").replace(STRIP_HTML_RE, " ");
@@ -177,8 +255,9 @@ const computeBlogSeoScore = ({
   excerpt = "",
   content = "",
   focusKeyword = "",
+  benchmark = DEFAULT_COMPETITOR_BENCHMARK,
 } = {}) => {
-  const benchmark = getCompetitorBenchmark();
+  const safeBenchmark = normalizeBenchmark(benchmark);
   const kw = String(focusKeyword || "").trim().toLowerCase();
   const plainText = stripHtml(content);
   const words = toWords(plainText);
@@ -203,26 +282,26 @@ const computeBlogSeoScore = ({
   if (kw && titleLower.includes(kw)) yoast += 8;
   if (kw && introWordsText.includes(kw)) yoast += 6;
   if (kw) {
-    if (keywordDensity >= benchmark.keywordDensityMin && keywordDensity <= benchmark.keywordDensityMax) yoast += 10;
-    else if (keywordDensity > 0.3 && keywordDensity <= benchmark.keywordDensityMax * 1.5) yoast += 5;
+    if (keywordDensity >= safeBenchmark.keywordDensityMin && keywordDensity <= safeBenchmark.keywordDensityMax) yoast += 10;
+    else if (keywordDensity > 0.3 && keywordDensity <= safeBenchmark.keywordDensityMax * 1.5) yoast += 5;
   }
   if (avgSentenceLength <= 20) yoast += 6;
   else if (avgSentenceLength <= 24) yoast += 3;
   if (transitionPerSentence >= 0.3) yoast += 5;
   else if (transitionPerSentence >= 0.15) yoast += 3;
-  if (metaDescription.length >= benchmark.metaDescriptionMin && metaDescription.length <= benchmark.metaDescriptionMax) yoast += 5;
+  if (metaDescription.length >= safeBenchmark.metaDescriptionMin && metaDescription.length <= safeBenchmark.metaDescriptionMax) yoast += 5;
 
   let rankMath = 0;
   if (kw && slugLower.includes(kw)) rankMath += 6;
   if (kw && headings.some((h) => h.includes(kw))) rankMath += 6;
   const mtLen = String(metaTitle || title || "").trim().length;
-  if (mtLen >= benchmark.metaTitleMin && mtLen <= benchmark.metaTitleMax) rankMath += 6;
+  if (mtLen >= safeBenchmark.metaTitleMin && mtLen <= safeBenchmark.metaTitleMax) rankMath += 6;
   else if (mtLen >= 30 && mtLen <= 75) rankMath += 3;
-  if (wordCount >= benchmark.wordCount) rankMath += 7;
-  else if (wordCount >= Math.round(benchmark.wordCount * 0.6)) rankMath += 4;
-  if (internalLinks.length >= benchmark.internalLinks) rankMath += 5;
-  else if (internalLinks.length >= Math.max(1, Math.floor(benchmark.internalLinks / 2))) rankMath += 3;
-  if (externalLinks.length >= benchmark.externalLinks) rankMath += 3;
+  if (wordCount >= safeBenchmark.wordCount) rankMath += 7;
+  else if (wordCount >= Math.round(safeBenchmark.wordCount * 0.6)) rankMath += 4;
+  if (internalLinks.length >= safeBenchmark.internalLinks) rankMath += 5;
+  else if (internalLinks.length >= Math.max(1, Math.floor(safeBenchmark.internalLinks / 2))) rankMath += 3;
+  if (externalLinks.length >= safeBenchmark.externalLinks) rankMath += 3;
   else if (externalLinks.length >= 1) rankMath += 2;
   if (excerpt.trim().length >= 80) rankMath += 2;
   else if (excerpt.trim().length > 0) rankMath += 1;
@@ -234,13 +313,13 @@ const computeBlogSeoScore = ({
   if (avgSentenceLength <= 18) jasper += 3;
 
   let competitive = 0;
-  const contentRatio = Math.min(1, benchmark.wordCount > 0 ? wordCount / benchmark.wordCount : 0);
+  const contentRatio = Math.min(1, safeBenchmark.wordCount > 0 ? wordCount / safeBenchmark.wordCount : 0);
   competitive += 3 * contentRatio;
-  const headingRatio = Math.min(1, benchmark.headingCount > 0 ? headings.length / benchmark.headingCount : 0);
+  const headingRatio = Math.min(1, safeBenchmark.headingCount > 0 ? headings.length / safeBenchmark.headingCount : 0);
   competitive += 2 * headingRatio;
-  const internalRatio = Math.min(1, benchmark.internalLinks > 0 ? internalLinks.length / benchmark.internalLinks : 0);
+  const internalRatio = Math.min(1, safeBenchmark.internalLinks > 0 ? internalLinks.length / safeBenchmark.internalLinks : 0);
   competitive += 3 * internalRatio;
-  const externalRatio = Math.min(1, benchmark.externalLinks > 0 ? externalLinks.length / benchmark.externalLinks : 0);
+  const externalRatio = Math.min(1, safeBenchmark.externalLinks > 0 ? externalLinks.length / safeBenchmark.externalLinks : 0);
   competitive += 2 * externalRatio;
 
   const total = Math.min(100, Math.max(0, roundInt(yoast + rankMath + jasper + competitive)));
@@ -793,6 +872,129 @@ export const remindAdminSeoTask = async ({ headers = {}, taskId, body = {} } = {
   }
 };
 
+export const getAdminSeoCompetitorBenchmark = async ({ headers = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  try {
+    const sql = getNeonSql();
+    const rows = await sql`
+      SELECT
+        id,
+        source,
+        benchmark,
+        snapshots,
+        notes,
+        updated_by AS "updatedBy",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM seo_competitor_benchmarks
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+
+    const item = rows[0] || null;
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        item,
+        effectiveBenchmark: await getCompetitorBenchmark(sql),
+      },
+    };
+  } catch (error) {
+    const message = error?.message || "Failed to load competitor benchmark";
+    const missingTable = message.toLowerCase().includes("relation \"seo_competitor_benchmarks\" does not exist");
+    if (missingTable) {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          item: null,
+          effectiveBenchmark: await getCompetitorBenchmark(null),
+          message: "Benchmark table not found yet. Using env/default benchmark.",
+        },
+      };
+    }
+
+    return { status: 500, body: { ok: false, message } };
+  }
+};
+
+export const upsertAdminSeoCompetitorBenchmark = async ({ headers = {}, body = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  const actorId = auth.payload?.sub || "admin";
+  const source = String(body.source || "manual").trim().toLowerCase();
+  const notes = String(body.notes || "").trim() || null;
+  const snapshots = Array.isArray(body.snapshots) ? body.snapshots.slice(0, 300) : [];
+
+  const incomingBenchmark = body.benchmark && typeof body.benchmark === "object" ? body.benchmark : null;
+  const derivedBenchmark = snapshots.length > 0 ? deriveBenchmarkFromSnapshots(snapshots) : null;
+  const benchmark = normalizeBenchmark(incomingBenchmark || derivedBenchmark || DEFAULT_COMPETITOR_BENCHMARK);
+
+  if (benchmark.keywordDensityMin >= benchmark.keywordDensityMax) {
+    return {
+      status: 400,
+      body: { ok: false, message: "keywordDensityMin must be lower than keywordDensityMax" },
+    };
+  }
+
+  try {
+    const sql = getNeonSql();
+    const id = createId("seo-benchmark");
+
+    const rows = await sql`
+      INSERT INTO seo_competitor_benchmarks (
+        id,
+        source,
+        benchmark,
+        snapshots,
+        notes,
+        updated_by,
+        updated_at
+      ) VALUES (
+        ${id},
+        ${source},
+        ${JSON.stringify(benchmark)},
+        ${JSON.stringify(snapshots)},
+        ${notes},
+        ${actorId},
+        NOW()
+      )
+      RETURNING
+        id,
+        source,
+        benchmark,
+        snapshots,
+        notes,
+        updated_by AS "updatedBy",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+    `;
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        item: rows[0],
+        effectiveBenchmark: benchmark,
+        derivedFromSnapshots: snapshots.length > 0,
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: { ok: false, message: error?.message || "Failed to update competitor benchmark" },
+    };
+  }
+};
+
 export const getAdminBlogArticles = async ({ headers = {}, query = {} } = {}) => {
   const auth = await requireAdminRequest(headers);
   if (!auth.ok) {
@@ -866,19 +1068,21 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
   const requestedPublishedAt = toIsoOrNull(body.publishedAt);
   const publishedAt = status === "published" ? requestedPublishedAt || new Date().toISOString() : null;
   const id = createId("blog");
-  const seoSignals = computeBlogSeoScore({
-    title,
-    slug: requestedSlug,
-    metaTitle,
-    metaDescription,
-    excerpt,
-    content,
-    focusKeyword,
-  });
 
   try {
     const sql = getNeonSql();
+    const benchmark = await getCompetitorBenchmark(sql);
     const slug = await buildUniqueBlogSlug(sql, requestedSlug);
+    const seoSignals = computeBlogSeoScore({
+      title,
+      slug,
+      metaTitle,
+      metaDescription,
+      excerpt,
+      content,
+      focusKeyword,
+      benchmark,
+    });
 
     const rows = await sql`
       INSERT INTO blog_articles (
@@ -992,6 +1196,7 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
       nextStatus === "published"
         ? requestedPublishedAt || new Date().toISOString()
         : null;
+    const benchmark = await getCompetitorBenchmark(sql);
     const nextSeoSignals = computeBlogSeoScore({
       title: nextTitle,
       slug: nextSlug,
@@ -1000,6 +1205,7 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
       excerpt: nextExcerpt,
       content: nextContent,
       focusKeyword: nextFocusKeyword,
+      benchmark,
     });
 
     const rows = await sql`
