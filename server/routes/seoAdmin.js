@@ -53,7 +53,54 @@ const buildUniqueBlogSlug = async (sql, baseSlug, excludeId = null) => {
   }
 };
 
-const ensurePostPublishFollowUpTask = async (sql, article = {}, actorId = "system") => {
+// Compute a 0-100 SEO score for a blog article based on keyword presence,
+// meta lengths, excerpt, and content word count.
+const computeBlogSeoScore = ({
+  title = "",
+  metaTitle = "",
+  metaDescription = "",
+  excerpt = "",
+  content = "",
+  focusKeyword = "",
+} = {}) => {
+  let score = 0;
+  const kw = focusKeyword.toLowerCase().trim();
+
+  // Keyword presence (20 pts)
+  if (kw) {
+    score += 10;
+    if (title.toLowerCase().includes(kw)) score += 5;
+    if (metaDescription.toLowerCase().includes(kw)) score += 5;
+  }
+
+  // Meta title length: 40-70 is ideal (25 pts)
+  const mt = (metaTitle || title).trim();
+  if (mt.length >= 40 && mt.length <= 70) score += 25;
+  else if (mt.length >= 30 && mt.length < 40) score += 15;
+  else if (mt.length > 70 && mt.length <= 85) score += 10;
+
+  // Meta description length: 100-160 is ideal (25 pts)
+  const md = metaDescription.trim();
+  if (md.length >= 100 && md.length <= 160) score += 25;
+  else if (md.length >= 70 && md.length < 100) score += 15;
+  else if (md.length > 160 && md.length <= 200) score += 10;
+
+  // Excerpt present (10 pts)
+  if (excerpt.trim().length > 0) score += 10;
+
+  // Content word count (20 pts)
+  const wordCount = content
+    .replace(/<[^>]+>/g, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+  if (wordCount >= 600) score += 20;
+  else if (wordCount >= 300) score += 12;
+  else if (wordCount >= 100) score += 6;
+
+  return Math.min(100, Math.max(0, score));
+};
+
+export const ensurePostPublishFollowUpTask = async (sql, article = {}, actorId = "system") => {
   if (!article?.id) return { created: false, reason: "missing-article-id" };
 
   const existing = await sql`
@@ -651,6 +698,7 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
   const requestedPublishedAt = toIsoOrNull(body.publishedAt);
   const publishedAt = status === "published" ? requestedPublishedAt || new Date().toISOString() : null;
   const id = createId("blog");
+  const seoScore = computeBlogSeoScore({ title, metaTitle, metaDescription, excerpt, content, focusKeyword });
 
   try {
     const sql = getNeonSql();
@@ -668,6 +716,7 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
         focus_keyword,
         meta_title,
         meta_description,
+        seo_score,
         created_by,
         published_at,
         updated_at
@@ -682,6 +731,7 @@ export const createAdminBlogArticle = async ({ headers = {}, body = {} } = {}) =
         ${focusKeyword || null},
         ${metaTitle || null},
         ${metaDescription || null},
+        ${seoScore},
         ${actorId},
         ${publishedAt},
         NOW()
@@ -757,6 +807,14 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
       nextStatus === "published"
         ? requestedPublishedAt || new Date().toISOString()
         : null;
+    const nextSeoScore = computeBlogSeoScore({
+      title: nextTitle,
+      metaTitle: nextMetaTitle,
+      metaDescription: nextMetaDescription,
+      excerpt: nextExcerpt,
+      content: nextContent,
+      focusKeyword: nextFocusKeyword,
+    });
 
     const rows = await sql`
       UPDATE blog_articles
@@ -769,6 +827,7 @@ export const updateAdminBlogArticle = async ({ headers = {}, articleId, body = {
         focus_keyword = ${nextFocusKeyword || null},
         meta_title = ${nextMetaTitle || null},
         meta_description = ${nextMetaDescription || null},
+        seo_score = ${nextSeoScore},
         published_at = ${nextPublishedAt},
         updated_at = NOW()
       WHERE id = ${articleId}

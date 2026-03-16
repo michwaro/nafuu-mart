@@ -1958,6 +1958,27 @@ export default function App() {
     });
   };
 
+  const previewBlogPost = (item) => {
+    // Build a synthetic post object from the item or the current draft (for unsaved drafts).
+    const source = item || blogAdminDraft;
+    const synth = {
+      id: source.id || "preview",
+      slug: source.slug || slugifySegment(source.title || "preview"),
+      title: source.title || "Untitled",
+      excerpt: source.excerpt || "",
+      content: source.content || "<p><em>No content yet.</em></p>",
+      focusKeyword: source.focusKeyword || "",
+      metaTitle: source.metaTitle || source.title || "Preview",
+      metaDescription: source.metaDescription || source.excerpt || "",
+      publishedAt: source.publishedAt || null,
+      status: source.status || "draft",
+      _isPreview: true,
+    };
+    setSelectedBlogPost(synth);
+    setSelectedBlogSlug(synth.slug);
+    setPage("blog-post");
+  };
+
   const startBlogAdminEdit = (item) => {
     setBlogAdminEditingId(item?.id || "");
     setBlogAdminDraft({
@@ -5663,6 +5684,9 @@ export default function App() {
                         <button onClick={() => void saveBlogAdminDraft()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>
                           {blogAdminEditingId ? "Update Article" : "Create Article"}
                         </button>
+                        <button onClick={() => previewBlogPost(null)} style={{ ...outlineBtn, padding: "7px 12px", fontSize: 12 }}>
+                          Preview Draft
+                        </button>
                         <button onClick={clearBlogAdminDraft} style={{ ...outlineBtn, padding: "7px 12px", fontSize: 12 }}>
                           Clear
                         </button>
@@ -5687,6 +5711,7 @@ export default function App() {
                               </div>
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 <button onClick={() => startBlogAdminEdit(item)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Edit</button>
+                                <button onClick={() => previewBlogPost(item)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Preview</button>
                                 {item.status !== "published" && (
                                   <button
                                     onClick={() => void publishBlogAdminItem(item)}
@@ -6186,7 +6211,23 @@ export default function App() {
         <style>{G}</style>
         {Nav()}
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "44px 24px" }}>
-          <button onClick={() => setPage("blog")} style={linkBtn}>Back to Tech Journal</button>
+          {selectedBlogPost?._isPreview && (
+            <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: 8, padding: "8px 14px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#713f12" }}>PREVIEW MODE — This article is not published</span>
+              <button
+                onClick={() => {
+                  setSelectedBlogPost(null);
+                  setPage("admin");
+                }}
+                style={{ ...outlineBtn, padding: "5px 10px", fontSize: 12 }}
+              >
+                Back to Admin
+              </button>
+            </div>
+          )}
+          {!selectedBlogPost?._isPreview && (
+            <button onClick={() => setPage("blog")} style={linkBtn}>Back to Tech Journal</button>
+          )}
 
           {blogError && (
             <div style={{ ...panel, border: "1px solid #fecaca", background: "#fff5f5", color: "#991b1b", marginTop: 12 }}>

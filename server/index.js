@@ -14,6 +14,7 @@ import {
   deleteAdminBlogArticle,
   getAdminBlogArticles,
   runAdminBlogPublishSweep,
+  ensurePostPublishFollowUpTask,
   createAdminSeoTask,
   getAdminSeoDashboard,
   getAdminSeoTasks,
@@ -373,11 +374,47 @@ app.get('/{*path}', (_req, res) => {
   });
 });
 
+// Background publish sweep — runs every 15 minutes to make scheduled articles
+// live and create post-publish SEO follow-up tasks automatically.
+const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const runBackgroundPublishSweep = async () => {
+  try {
+    const sql = getNeonSql();
+    const dueArticles = await sql`
+      SELECT id, slug, title, published_at AS "publishedAt"
+      FROM blog_articles
+      WHERE status = 'published'
+        AND (published_at IS NULL OR published_at <= NOW())
+      ORDER BY published_at DESC NULLS LAST
+      LIMIT 500
+    `;
+
+
+    if (dueArticles.length === 0) return;
+
+    let created = 0;
+    for (const article of dueArticles) {
+      const result = await ensurePostPublishFollowUpTask(sql, article, "system");
+      if (result?.created) created += 1;
+    }
+    if (created > 0) {
+      console.log(`[sweep] Created ${created} post-publish follow-up task(s) for ${dueArticles.length} article(s).`);
+    }
+  } catch (err) {
+    console.error("[sweep] Background publish sweep error:", err?.message || err);
+  }
+};
+
 export const startServer = (port = PORT) => {
   app.listen(port, () => {
     // Intentionally kept as console logging for local API runtime visibility.
     console.log(`Nafuu Mart API listening on http://localhost:${port}`);
   });
+  // Delay first sweep by 30 s to allow DB connection pool to warm up.
+  setTimeout(() => {
+    void runBackgroundPublishSweep();
+    setInterval(() => void runBackgroundPublishSweep(), SWEEP_INTERVAL_MS);
+  }, 30_000);
 };
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
