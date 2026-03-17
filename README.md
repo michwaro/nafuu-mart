@@ -45,6 +45,62 @@ npm run dev
 npm run build
 ```
 
+## AI Blog Generation
+
+Blog Admin now supports AI draft generation with multiple providers.
+
+### Supported Providers
+
+1. GitHub Models (default)
+2. OpenAI
+3. Claude (Anthropic)
+4. Grok (xAI)
+
+### Environment Setup
+
+Copy `.env.example` to `.env.local` and configure one or more providers.
+
+Core selector:
+
+```bash
+LLM_PROVIDER=github
+```
+
+Provider-specific keys:
+
+```bash
+# GitHub Models
+GITHUB_TOKEN=...
+LLM_MODEL=openai/gpt-5-mini
+
+# OpenAI
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5-mini
+
+# Claude / Anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL=claude-sonnet-4-5
+
+# Grok / xAI
+XAI_API_KEY=...
+XAI_MODEL=grok-3-mini
+```
+
+### Admin Usage
+
+1. Open Admin panel → Blog Admin.
+2. Check the LLM Provider Health badges.
+3. Choose provider and optional model override.
+4. Enter title or focus keyword.
+5. Click `Generate Draft (AI)`.
+6. Review/edit generated content and save/publish.
+
+### Provider Health Endpoint
+
+- `GET /api/admin/seo/llm-providers`
+- Returns configured status for `github`, `openai`, `anthropic`, and `grok`.
+- Requires admin authentication.
+
 ## Premium Features
 
 ### Coupon & Discount Code System
