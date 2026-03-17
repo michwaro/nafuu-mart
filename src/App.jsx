@@ -6013,7 +6013,38 @@ export default function App() {
                                     <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Internal links: {item.seoInsights.internalLinkCount || 0}</span>
                                     <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>External links: {item.seoInsights.externalLinkCount || 0}</span>
                                     <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Keyword density: {item.seoInsights.keywordDensity || 0}%</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Meta title: {item.seoInsights.metaTitleLength || 0} chars</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Meta description: {item.seoInsights.metaDescriptionLength || 0} chars</span>
                                   </div>
+                                  {Array.isArray(item.seoRecommendations) && item.seoRecommendations.length > 0 && (
+                                    <div style={{ border: "1px solid #dbeafe", borderRadius: 8, background: "white", padding: 8, display: "grid", gap: 6 }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: "#1e3a8a" }}>Recommended Next Actions</div>
+                                      {item.seoRecommendations.map((rec, idx) => (
+                                        <div key={`${item.id}-rec-${rec.id || idx}`} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 8, display: "grid", gap: 4 }}>
+                                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                            <div style={{ fontSize: 11, color: "#0f172a", fontWeight: 700 }}>{rec.title}</div>
+                                            <div style={{ fontSize: 10, color: rec.priority === "high" ? "#b91c1c" : rec.priority === "medium" ? "#92400e" : "#334155", textTransform: "uppercase", fontWeight: 700 }}>{rec.priority || "medium"}</div>
+                                          </div>
+                                          {rec.notes && <div style={{ fontSize: 11, color: "#475569" }}>{rec.notes}</div>}
+                                          <div>
+                                            <button
+                                              onClick={() => void createSeoFollowUpTask({
+                                                title: rec.title,
+                                                actionType: rec.actionType || "content_task",
+                                                sourceType: "blog_article",
+                                                sourceRef: item.id,
+                                                priority: rec.priority || "medium",
+                                                notes: rec.notes || "",
+                                              })}
+                                              style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}
+                                            >
+                                              Create Task
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

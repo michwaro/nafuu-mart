@@ -245,6 +245,101 @@ const extractHeadings = (html = "") => {
 
 const roundInt = (n) => Math.round(Number(n) || 0);
 
+const buildBlogSeoRecommendations = ({ article = {}, signals = {}, benchmark = DEFAULT_COMPETITOR_BENCHMARK } = {}) => {
+  const safeBenchmark = normalizeBenchmark(benchmark);
+  const breakdown = signals.breakdown || {};
+  const recommendations = [];
+  const focusKeyword = String(article.focusKeyword || "").trim();
+
+  if (!focusKeyword) {
+    recommendations.push({
+      id: "focus-keyword",
+      priority: "high",
+      actionType: "rewrite_task",
+      title: "Set a focus keyword for this article",
+      notes: "Add one primary keyword so title, intro, headings, and metadata can be optimized consistently.",
+    });
+  }
+
+  if (asNumber(breakdown.wordCount, 0) < safeBenchmark.wordCount) {
+    recommendations.push({
+      id: "word-count",
+      priority: "high",
+      actionType: "content_task",
+      title: `Increase content depth toward ${safeBenchmark.wordCount}+ words`,
+      notes: `Current word count is ${asNumber(breakdown.wordCount, 0)}. Add practical FAQs, comparisons, and buyer guidance.`,
+    });
+  }
+
+  if (asNumber(breakdown.headingCount, 0) < safeBenchmark.headingCount) {
+    recommendations.push({
+      id: "headings",
+      priority: "medium",
+      actionType: "rewrite_task",
+      title: `Add structured H2/H3 headings (target ${safeBenchmark.headingCount})`,
+      notes: `Current heading count is ${asNumber(breakdown.headingCount, 0)}. Improve scannability with clear topic sections.`,
+    });
+  }
+
+  const keywordDensity = asNumber(breakdown.keywordDensity, 0);
+  if (focusKeyword && (keywordDensity < safeBenchmark.keywordDensityMin || keywordDensity > safeBenchmark.keywordDensityMax)) {
+    recommendations.push({
+      id: "keyword-density",
+      priority: "high",
+      actionType: "rewrite_task",
+      title: "Adjust keyword usage to natural target range",
+      notes: `Keyword density is ${keywordDensity.toFixed(2)}%. Aim for ${safeBenchmark.keywordDensityMin.toFixed(1)}% to ${safeBenchmark.keywordDensityMax.toFixed(1)}%.`,
+    });
+  }
+
+  const metaTitleLength = asNumber(breakdown.metaTitleLength, 0);
+  if (metaTitleLength < safeBenchmark.metaTitleMin || metaTitleLength > safeBenchmark.metaTitleMax) {
+    recommendations.push({
+      id: "meta-title-length",
+      priority: "medium",
+      actionType: "content_task",
+      title: "Optimize meta title length",
+      notes: `Current length is ${metaTitleLength} chars. Target ${safeBenchmark.metaTitleMin} to ${safeBenchmark.metaTitleMax} chars.`,
+    });
+  }
+
+  const metaDescriptionLength = asNumber(breakdown.metaDescriptionLength, 0);
+  if (metaDescriptionLength < safeBenchmark.metaDescriptionMin || metaDescriptionLength > safeBenchmark.metaDescriptionMax) {
+    recommendations.push({
+      id: "meta-description-length",
+      priority: "medium",
+      actionType: "content_task",
+      title: "Rewrite meta description to improve SERP fit",
+      notes: `Current length is ${metaDescriptionLength} chars. Target ${safeBenchmark.metaDescriptionMin} to ${safeBenchmark.metaDescriptionMax} chars.`,
+    });
+  }
+
+  if (asNumber(breakdown.internalLinkCount, 0) < safeBenchmark.internalLinks) {
+    recommendations.push({
+      id: "internal-links",
+      priority: "medium",
+      actionType: "content_task",
+      title: "Add more internal links to related pages",
+      notes: `Current internal links: ${asNumber(breakdown.internalLinkCount, 0)}. Target at least ${safeBenchmark.internalLinks}.`,
+    });
+  }
+
+  if (asNumber(breakdown.externalLinkCount, 0) < safeBenchmark.externalLinks) {
+    recommendations.push({
+      id: "external-links",
+      priority: "low",
+      actionType: "content_task",
+      title: "Reference authoritative external sources",
+      notes: `Current external links: ${asNumber(breakdown.externalLinkCount, 0)}. Target around ${safeBenchmark.externalLinks}.`,
+    });
+  }
+
+  const priorityRank = { high: 0, medium: 1, low: 2 };
+  return recommendations
+    .sort((a, b) => (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99))
+    .slice(0, 6);
+};
+
 // Multi-signal SEO scoring inspired by Yoast/Rank Math/Jasper style checks,
 // plus competitor benchmark gap scoring.
 const computeBlogSeoScore = ({
@@ -336,6 +431,9 @@ const computeBlogSeoScore = ({
       headingCount: headings.length,
       internalLinkCount: internalLinks.length,
       externalLinkCount: externalLinks.length,
+      metaTitleLength: mtLen,
+      metaDescriptionLength: String(metaDescription || "").trim().length,
+      excerptLength: String(excerpt || "").trim().length,
     },
     internalLinks: internalLinks.slice(0, 25),
   };
@@ -358,6 +456,7 @@ const buildBlogSeoDiagnostics = (article = {}, benchmark = DEFAULT_COMPETITOR_BE
   return {
     ...article,
     seoInsights: signals.breakdown,
+    seoRecommendations: buildBlogSeoRecommendations({ article, signals, benchmark }),
     seoScoreCurrent: signals.score,
     seoScoreDelta: signals.score - storedScore,
     internalLinks: Array.isArray(article.internalLinks) && article.internalLinks.length > 0
