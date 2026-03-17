@@ -341,6 +341,31 @@ const computeBlogSeoScore = ({
   };
 };
 
+const buildBlogSeoDiagnostics = (article = {}, benchmark = DEFAULT_COMPETITOR_BENCHMARK) => {
+  const signals = computeBlogSeoScore({
+    title: article.title || "",
+    slug: article.slug || "",
+    metaTitle: article.metaTitle || article.title || "",
+    metaDescription: article.metaDescription || article.excerpt || "",
+    excerpt: article.excerpt || "",
+    content: article.content || "",
+    focusKeyword: article.focusKeyword || "",
+    benchmark,
+  });
+
+  const storedScore = asNumber(article.seoScore, 0);
+
+  return {
+    ...article,
+    seoInsights: signals.breakdown,
+    seoScoreCurrent: signals.score,
+    seoScoreDelta: signals.score - storedScore,
+    internalLinks: Array.isArray(article.internalLinks) && article.internalLinks.length > 0
+      ? article.internalLinks
+      : signals.internalLinks,
+  };
+};
+
 export const ensurePostPublishFollowUpTask = async (sql, article = {}, actorId = "system") => {
   if (!article?.id) return { created: false, reason: "missing-article-id" };
 
@@ -1007,6 +1032,7 @@ export const getAdminBlogArticles = async ({ headers = {}, query = {} } = {}) =>
 
   try {
     const sql = getNeonSql();
+    const benchmark = await getCompetitorBenchmark(sql);
     const rows = await sql`
       SELECT
         id,
@@ -1031,7 +1057,14 @@ export const getAdminBlogArticles = async ({ headers = {}, query = {} } = {}) =>
       LIMIT ${limit}
     `;
 
-    return { status: 200, body: { ok: true, items: rows } };
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        items: rows.map((row) => buildBlogSeoDiagnostics(row, benchmark)),
+        benchmark,
+      },
+    };
   } catch (error) {
     const message = error?.message || "Failed to load admin blog articles";
     const missingTable = message.toLowerCase().includes("relation \"blog_articles\" does not exist");
@@ -1041,6 +1074,74 @@ export const getAdminBlogArticles = async ({ headers = {}, query = {} } = {}) =>
         ok: false,
         message: missingTable ? "Blog tables are not ready. Run database migrations first." : message,
       },
+    };
+  }
+};
+
+export const runAdminBlogSeoRescore = async ({ headers = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  try {
+    const sql = getNeonSql();
+    const benchmark = await getCompetitorBenchmark(sql);
+    const rows = await sql`
+      SELECT
+        id,
+        slug,
+        title,
+        excerpt,
+        content,
+        focus_keyword AS "focusKeyword",
+        meta_title AS "metaTitle",
+        meta_description AS "metaDescription",
+        seo_score AS "seoScore",
+        internal_links AS "internalLinks"
+      FROM blog_articles
+      ORDER BY updated_at DESC
+      LIMIT 5000
+    `;
+
+    let updatedCount = 0;
+    let changedCount = 0;
+
+    for (const row of rows) {
+      const diagnostics = buildBlogSeoDiagnostics(row, benchmark);
+      const nextLinks = JSON.stringify(diagnostics.internalLinks || []);
+      const previousLinks = JSON.stringify(Array.isArray(row.internalLinks) ? row.internalLinks : []);
+      const nextScore = asNumber(diagnostics.seoScoreCurrent, 0);
+      const prevScore = asNumber(row.seoScore, 0);
+      const hasChanged = nextScore !== prevScore || nextLinks !== previousLinks;
+
+      await sql`
+        UPDATE blog_articles
+        SET
+          seo_score = ${nextScore},
+          internal_links = ${nextLinks}
+        WHERE id = ${row.id}
+      `;
+
+      updatedCount += 1;
+      if (hasChanged) changedCount += 1;
+    }
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        summary: {
+          updatedCount,
+          changedCount,
+        },
+        benchmark,
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: { ok: false, message: error?.message || "Failed to re-score blog articles" },
     };
   }
 };

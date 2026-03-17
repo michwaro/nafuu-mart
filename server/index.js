@@ -14,6 +14,7 @@ import {
   deleteAdminBlogArticle,
   getAdminBlogArticles,
   runAdminBlogPublishSweep,
+  runAdminBlogSeoRescore,
   ensurePostPublishFollowUpTask,
   createAdminSeoTask,
   getAdminSeoCompetitorBenchmark,
@@ -309,6 +310,10 @@ app.delete("/api/admin/blog/articles/:articleId", (req, res) => {
 
 app.post("/api/admin/seo/blog-publish-sweep", (req, res) => {
   void sendHandlerResult(res, runAdminBlogPublishSweep({ headers: req.headers }));
+});
+
+app.post("/api/admin/seo/blog-rescore", (req, res) => {
+  void sendHandlerResult(res, runAdminBlogSeoRescore({ headers: req.headers }));
 });
 
 app.post("/api/admin/seo/tasks", (req, res) => {

@@ -345,6 +345,7 @@ export default function App() {
   });
   const [seoBenchmarkDraft, setSeoBenchmarkDraft] = useState(createSeoBenchmarkDraft());
   const [seoBenchmarkInfo, setSeoBenchmarkInfo] = useState(null);
+  const [openBlogSeoDiagnosticsId, setOpenBlogSeoDiagnosticsId] = useState("");
   const [blogPosts, setBlogPosts] = useState([]);
   const [blogLoading, setBlogLoading] = useState(false);
   const [blogError, setBlogError] = useState("");
@@ -1988,6 +1989,29 @@ export default function App() {
     }
   };
 
+  const runBlogSeoRescore = async ({ showSuccessMessage = true } = {}) => {
+    setSeoLoading(true);
+    setSeoError("");
+    try {
+      const data = await callAdminSeoApi("/api/admin/seo/blog-rescore", {
+        method: "POST",
+      });
+      await loadAdminBlogArticles();
+      const summary = data?.summary || {};
+      if (showSuccessMessage) {
+        setAdminMsg(
+          `SEO re-score complete. Updated ${summary.updatedCount || 0} articles; ${summary.changedCount || 0} changed.`
+        );
+      }
+      return data;
+    } catch (error) {
+      setSeoError(error?.message || "Could not re-score blog articles.");
+      return null;
+    } finally {
+      setSeoLoading(false);
+    }
+  };
+
   const clearBlogAdminDraft = () => {
     setBlogAdminEditingId("");
     setBlogAdminDraft({
@@ -2026,6 +2050,7 @@ export default function App() {
 
   const startBlogAdminEdit = (item) => {
     setBlogAdminEditingId(item?.id || "");
+    setOpenBlogSeoDiagnosticsId(item?.id || "");
     setBlogAdminDraft({
       title: item?.title || "",
       slug: item?.slug || "",
@@ -2228,11 +2253,68 @@ export default function App() {
         message: data.derivedFromSnapshots ? "Benchmark updated from competitor snapshots." : "Benchmark updated.",
       });
       setSeoBenchmarkDraft(createSeoBenchmarkDraft(data.item, data.effectiveBenchmark));
-      setAdminMsg(data.derivedFromSnapshots ? "Competitor benchmark updated from snapshots." : "Competitor benchmark updated.");
+      await runBlogSeoRescore({ showSuccessMessage: false });
+      setAdminMsg(
+        data.derivedFromSnapshots
+          ? "Competitor benchmark updated from snapshots and all blog articles were re-scored."
+          : "Competitor benchmark updated and all blog articles were re-scored."
+      );
     } catch (error) {
       setSeoError(error?.message || "Could not save competitor benchmark.");
     } finally {
       setSeoLoading(false);
+    }
+  };
+
+  const exportSeoCompetitorBenchmark = () => {
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        item: seoBenchmarkInfo?.item || null,
+        effectiveBenchmark: seoBenchmarkInfo?.effectiveBenchmark || null,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `nafuu-seo-benchmark-${Date.now()}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setAdminMsg("Competitor benchmark exported.");
+    } catch {
+      setSeoError("Could not export competitor benchmark.");
+    }
+  };
+
+  const importSeoCompetitorBenchmarkFile = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const item = parsed?.item && typeof parsed.item === "object" ? parsed.item : null;
+      const benchmark = parsed?.benchmark || parsed?.effectiveBenchmark || item?.benchmark || null;
+      const snapshots = Array.isArray(parsed?.snapshots)
+        ? parsed.snapshots
+        : Array.isArray(item?.snapshots)
+          ? item.snapshots
+          : [];
+      setSeoBenchmarkDraft(
+        createSeoBenchmarkDraft(
+          {
+            source: parsed?.source || item?.source || "import",
+            notes: parsed?.notes || item?.notes || "Imported from JSON file",
+            benchmark,
+            snapshots,
+          },
+          benchmark
+        )
+      );
+      setAdminMsg("Benchmark JSON imported into the form. Save to apply it.");
+      setSeoError("");
+    } catch (error) {
+      setSeoError(error?.message || "Could not import benchmark JSON.");
     }
   };
 
@@ -5622,6 +5704,16 @@ export default function App() {
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a" }}>Competitor Benchmark</div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button onClick={() => void loadSeoCompetitorBenchmark()} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Reload Benchmark</button>
+                          <button onClick={exportSeoCompetitorBenchmark} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Export JSON</button>
+                          <label style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                            Import JSON
+                            <input
+                              type="file"
+                              accept="application/json,.json"
+                              onChange={(e) => void importSeoCompetitorBenchmarkFile(e.target.files?.[0])}
+                              style={{ display: "none" }}
+                            />
+                          </label>
                           <button
                             onClick={() => setSeoBenchmarkDraft(createSeoBenchmarkDraft(seoBenchmarkInfo?.item, seoBenchmarkInfo?.effectiveBenchmark))}
                             style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}
@@ -5675,6 +5767,9 @@ export default function App() {
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                         <button onClick={() => void saveSeoCompetitorBenchmark()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>
                           Save Benchmark
+                        </button>
+                        <button onClick={() => void runBlogSeoRescore()} style={{ ...outlineBtn, padding: "7px 12px", fontSize: 12 }}>
+                          Re-score Blog Articles
                         </button>
                         <div style={{ fontSize: 11, color: "#475569", display: "flex", alignItems: "center" }}>
                           Paste SpyFu-style snapshot metrics here to auto-derive a new baseline.
@@ -5863,7 +5958,10 @@ export default function App() {
                             <div key={item.id} style={{ border: "1px solid #dbeafe", borderRadius: 8, padding: 8, display: "grid", gap: 4 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>{item.title}</div>
-                                <div style={{ fontSize: 11, color: "#1e3a8a" }}>{item.status} · SEO {Math.round(Number(item.seoScore || 0))}</div>
+                                <div style={{ fontSize: 11, color: "#1e3a8a" }}>
+                                  {item.status} · SEO {Math.round(Number((item.seoScoreCurrent ?? item.seoScore) || 0))}
+                                  {Number(item.seoScoreDelta || 0) !== 0 && ` (${item.seoScoreDelta > 0 ? "+" : ""}${Math.round(Number(item.seoScoreDelta || 0))})`}
+                                </div>
                               </div>
                               <div style={{ fontSize: 11, color: "#475569" }}>/blog/{item.slug}</div>
                               <div style={{ fontSize: 11, color: "#475569" }}>
@@ -5872,6 +5970,12 @@ export default function App() {
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 <button onClick={() => startBlogAdminEdit(item)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Edit</button>
                                 <button onClick={() => previewBlogPost(item)} style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}>Preview</button>
+                                <button
+                                  onClick={() => setOpenBlogSeoDiagnosticsId((prev) => (prev === item.id ? "" : item.id))}
+                                  style={{ ...outlineBtn, padding: "5px 8px", fontSize: 11 }}
+                                >
+                                  {openBlogSeoDiagnosticsId === item.id ? "Hide Diagnostics" : "Diagnostics"}
+                                </button>
                                 {item.status !== "published" && (
                                   <button
                                     onClick={() => void publishBlogAdminItem(item)}
@@ -5895,6 +5999,23 @@ export default function App() {
                                   Delete
                                 </button>
                               </div>
+                              {openBlogSeoDiagnosticsId === item.id && item.seoInsights && (
+                                <div style={{ border: "1px solid #dbeafe", borderRadius: 8, background: "#f8fbff", padding: 8, display: "grid", gap: 8 }}>
+                                  <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                                    <div style={{ background: "white", border: "1px solid #e0e7ff", borderRadius: 8, padding: 8 }}><div style={{ fontSize: 10, color: "#64748b" }}>Yoast</div><div style={{ fontSize: 16, fontWeight: 800, color: "#1e3a8a" }}>{item.seoInsights.yoast || 0}</div></div>
+                                    <div style={{ background: "white", border: "1px solid #e0e7ff", borderRadius: 8, padding: 8 }}><div style={{ fontSize: 10, color: "#64748b" }}>Rank Math</div><div style={{ fontSize: 16, fontWeight: 800, color: "#1e3a8a" }}>{item.seoInsights.rankMath || 0}</div></div>
+                                    <div style={{ background: "white", border: "1px solid #e0e7ff", borderRadius: 8, padding: 8 }}><div style={{ fontSize: 10, color: "#64748b" }}>Jasper</div><div style={{ fontSize: 16, fontWeight: 800, color: "#1e3a8a" }}>{item.seoInsights.jasper || 0}</div></div>
+                                    <div style={{ background: "white", border: "1px solid #e0e7ff", borderRadius: 8, padding: 8 }}><div style={{ fontSize: 10, color: "#64748b" }}>Competitive</div><div style={{ fontSize: 16, fontWeight: 800, color: "#1e3a8a" }}>{item.seoInsights.competitive || 0}</div></div>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Words: {item.seoInsights.wordCount || 0}</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Headings: {item.seoInsights.headingCount || 0}</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Internal links: {item.seoInsights.internalLinkCount || 0}</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>External links: {item.seoInsights.externalLinkCount || 0}</span>
+                                    <span style={{ border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#334155", background: "white" }}>Keyword density: {item.seoInsights.keywordDensity || 0}%</span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
