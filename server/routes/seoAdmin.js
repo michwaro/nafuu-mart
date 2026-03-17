@@ -245,6 +245,47 @@ const extractHeadings = (html = "") => {
 
 const roundInt = (n) => Math.round(Number(n) || 0);
 
+const extractJsonObjectFromText = (text = "") => {
+  const source = String(text || "").trim();
+  if (!source) return null;
+
+  try {
+    return JSON.parse(source);
+  } catch {
+    // Continue and try to parse fenced/plain object payloads.
+  }
+
+  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch {
+      // Continue with fallback object extraction.
+    }
+  }
+
+  const firstBrace = source.indexOf("{");
+  const lastBrace = source.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const candidate = source.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const toSafeHtmlParagraphs = (value = "") => {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.map((line) => `<p>${line}</p>`).join("\n");
+};
+
 const buildBlogSeoRecommendations = ({ article = {}, signals = {}, benchmark = DEFAULT_COMPETITOR_BENCHMARK } = {}) => {
   const safeBenchmark = normalizeBenchmark(benchmark);
   const breakdown = signals.breakdown || {};
@@ -1173,6 +1214,148 @@ export const getAdminBlogArticles = async ({ headers = {}, query = {} } = {}) =>
         ok: false,
         message: missingTable ? "Blog tables are not ready. Run database migrations first." : message,
       },
+    };
+  }
+};
+
+export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  const titleHint = String(body.title || "").trim();
+  const focusKeyword = String(body.focusKeyword || "").trim();
+  const audience = String(body.audience || "Kenyan online shoppers").trim();
+  const intent = String(body.intent || "commercial").trim();
+  const tone = String(body.tone || "helpful and confident").trim();
+  const customModel = String(body.model || "").trim();
+
+  if (!titleHint && !focusKeyword) {
+    return {
+      status: 400,
+      body: { ok: false, message: "Provide at least a title or focus keyword to generate a draft." },
+    };
+  }
+
+  const apiKey = String(process.env.LLM_API_KEY || "").trim();
+  if (!apiKey) {
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        message: "LLM is not configured. Set LLM_API_KEY (and optionally LLM_API_URL, LLM_MODEL).",
+      },
+    };
+  }
+
+  const apiUrl = String(process.env.LLM_API_URL || "https://models.github.ai/inference/chat/completions").trim();
+  const model = customModel || String(process.env.LLM_MODEL || "openai/gpt-5-mini").trim();
+
+  const prompt = {
+    topic: titleHint || focusKeyword,
+    titleHint,
+    focusKeyword,
+    audience,
+    intent,
+    tone,
+    requirements: {
+      wordCountTarget: "900-1300",
+      includeHeadings: true,
+      includeFaqSection: true,
+      includeCallToAction: true,
+      locale: "Kenya",
+      style: "SEO-friendly and conversion-aware",
+    },
+    outputSchema: {
+      title: "string",
+      slug: "string",
+      excerpt: "string",
+      contentHtml: "string",
+      focusKeyword: "string",
+      metaTitle: "string",
+      metaDescription: "string",
+    },
+  };
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an SEO content strategist for an ecommerce store. Return ONLY valid JSON matching the requested schema. No markdown wrappers.",
+          },
+          {
+            role: "user",
+            content: `Generate a high-quality blog article draft using this JSON input: ${JSON.stringify(prompt)}`,
+          },
+        ],
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        status: 502,
+        body: {
+          ok: false,
+          message: data?.error?.message || data?.message || "AI generation request failed.",
+        },
+      };
+    }
+
+    const rawText =
+      data?.choices?.[0]?.message?.content ||
+      data?.output?.[0]?.content?.[0]?.text ||
+      "";
+
+    const parsed = extractJsonObjectFromText(rawText);
+    if (!parsed || typeof parsed !== "object") {
+      return {
+        status: 502,
+        body: { ok: false, message: "AI response could not be parsed into JSON draft format." },
+      };
+    }
+
+    const finalTitle = String(parsed.title || titleHint || focusKeyword || "New article").trim();
+    const finalSlug = slugify(parsed.slug || finalTitle);
+    const plainContent = String(parsed.content || "").trim();
+    const generatedContent = String(parsed.contentHtml || "").trim() || toSafeHtmlParagraphs(plainContent);
+    const generatedExcerpt = String(parsed.excerpt || "").trim();
+
+    const item = {
+      title: finalTitle,
+      slug: finalSlug,
+      excerpt: generatedExcerpt,
+      content: generatedContent,
+      focusKeyword: String(parsed.focusKeyword || focusKeyword || "").trim(),
+      metaTitle: String(parsed.metaTitle || finalTitle).trim(),
+      metaDescription: String(parsed.metaDescription || generatedExcerpt).trim(),
+      status: "draft",
+      source: "ai",
+    };
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        item,
+        modelUsed: model,
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: { ok: false, message: error?.message || "Failed to generate AI blog draft" },
     };
   }
 };

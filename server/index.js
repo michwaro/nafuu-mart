@@ -12,6 +12,7 @@ import { getBlogArticleBySlug, getBlogArticles } from "./routes/blog.js";
 import {
   createAdminBlogArticle,
   deleteAdminBlogArticle,
+  generateAdminBlogDraft,
   getAdminBlogArticles,
   runAdminBlogPublishSweep,
   runAdminBlogSeoRescore,
@@ -292,6 +293,10 @@ app.get("/api/admin/blog/articles", (req, res) => {
 
 app.post("/api/admin/blog/articles", (req, res) => {
   void sendHandlerResult(res, createAdminBlogArticle({ headers: req.headers, body: req.body }));
+});
+
+app.post("/api/admin/blog/generate-draft", (req, res) => {
+  void sendHandlerResult(res, generateAdminBlogDraft({ headers: req.headers, body: req.body }));
 });
 
 app.patch("/api/admin/blog/articles/:articleId", (req, res) => {

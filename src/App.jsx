@@ -323,6 +323,13 @@ export default function App() {
   const [blogAdminError, setBlogAdminError] = useState("");
   const [blogAdminItems, setBlogAdminItems] = useState([]);
   const [blogAdminEditingId, setBlogAdminEditingId] = useState("");
+  const [blogDraftGenerating, setBlogDraftGenerating] = useState(false);
+  const [blogGenerationConfig, setBlogGenerationConfig] = useState({
+    audience: "Kenyan online shoppers",
+    intent: "commercial",
+    tone: "helpful and confident",
+    model: "",
+  });
   const [blogAdminDraft, setBlogAdminDraft] = useState({
     title: "",
     slug: "",
@@ -2093,6 +2100,48 @@ export default function App() {
       setBlogAdminError(error?.message || "Could not save blog article.");
     } finally {
       setBlogAdminLoading(false);
+    }
+  };
+
+  const generateBlogAdminDraftFromAi = async () => {
+    const hasPrompt = blogAdminDraft.title.trim() || blogAdminDraft.focusKeyword.trim();
+    if (!hasPrompt) {
+      setBlogAdminError("Add a title or focus keyword before generating an AI draft.");
+      return;
+    }
+
+    setBlogDraftGenerating(true);
+    setBlogAdminError("");
+    try {
+      const data = await callAdminSeoApi("/api/admin/blog/generate-draft", {
+        method: "POST",
+        body: JSON.stringify({
+          title: blogAdminDraft.title,
+          focusKeyword: blogAdminDraft.focusKeyword,
+          audience: blogGenerationConfig.audience,
+          intent: blogGenerationConfig.intent,
+          tone: blogGenerationConfig.tone,
+          model: blogGenerationConfig.model,
+        }),
+      });
+
+      const next = data?.item || {};
+      setBlogAdminDraft((prev) => ({
+        ...prev,
+        title: next.title || prev.title,
+        slug: next.slug || prev.slug,
+        excerpt: next.excerpt || prev.excerpt,
+        content: next.content || prev.content,
+        focusKeyword: next.focusKeyword || prev.focusKeyword,
+        metaTitle: next.metaTitle || prev.metaTitle,
+        metaDescription: next.metaDescription || prev.metaDescription,
+        status: "draft",
+      }));
+      setAdminMsg(`AI draft generated using ${data?.modelUsed || "configured model"}.`);
+    } catch (error) {
+      setBlogAdminError(error?.message || "Could not generate AI draft.");
+    } finally {
+      setBlogDraftGenerating(false);
     }
   };
 
@@ -5865,6 +5914,32 @@ export default function App() {
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
                         {blogAdminEditingId ? "Edit Blog Article" : "Create Blog Article"}
                       </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "2fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <input
+                          value={blogGenerationConfig.audience}
+                          onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, audience: e.target.value }))}
+                          placeholder="Audience"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <input
+                          value={blogGenerationConfig.intent}
+                          onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, intent: e.target.value }))}
+                          placeholder="Intent"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <input
+                          value={blogGenerationConfig.tone}
+                          onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, tone: e.target.value }))}
+                          placeholder="Tone"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                        <input
+                          value={blogGenerationConfig.model}
+                          onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, model: e.target.value }))}
+                          placeholder="Model override (optional)"
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                        />
+                      </div>
                       <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "2fr 1fr", gap: 8 }}>
                         <input
                           value={blogAdminDraft.title}
@@ -5936,6 +6011,9 @@ export default function App() {
                         />
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <button onClick={() => void generateBlogAdminDraftFromAi()} disabled={blogDraftGenerating} style={{ ...outlineBtn, padding: "7px 12px", fontSize: 12 }}>
+                          {blogDraftGenerating ? "Generating..." : "Generate Draft (AI)"}
+                        </button>
                         <button onClick={() => void saveBlogAdminDraft()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>
                           {blogAdminEditingId ? "Update Article" : "Create Article"}
                         </button>
