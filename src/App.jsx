@@ -183,6 +183,38 @@ const createProfileTemplate = (user = {}) => {
   };
 };
 
+const DEFAULT_SEO_BENCHMARK_VALUES = {
+  wordCount: 1200,
+  headingCount: 6,
+  internalLinks: 5,
+  externalLinks: 2,
+  keywordDensityMin: 0.8,
+  keywordDensityMax: 2.2,
+  metaTitleMin: 45,
+  metaTitleMax: 65,
+  metaDescriptionMin: 120,
+  metaDescriptionMax: 155,
+};
+
+const createSeoBenchmarkDraft = (item = null, effectiveBenchmark = null) => {
+  const benchmark = { ...DEFAULT_SEO_BENCHMARK_VALUES, ...(effectiveBenchmark || item?.benchmark || {}) };
+  return {
+    source: item?.source || "manual",
+    notes: item?.notes || "",
+    wordCount: String(benchmark.wordCount ?? DEFAULT_SEO_BENCHMARK_VALUES.wordCount),
+    headingCount: String(benchmark.headingCount ?? DEFAULT_SEO_BENCHMARK_VALUES.headingCount),
+    internalLinks: String(benchmark.internalLinks ?? DEFAULT_SEO_BENCHMARK_VALUES.internalLinks),
+    externalLinks: String(benchmark.externalLinks ?? DEFAULT_SEO_BENCHMARK_VALUES.externalLinks),
+    keywordDensityMin: String(benchmark.keywordDensityMin ?? DEFAULT_SEO_BENCHMARK_VALUES.keywordDensityMin),
+    keywordDensityMax: String(benchmark.keywordDensityMax ?? DEFAULT_SEO_BENCHMARK_VALUES.keywordDensityMax),
+    metaTitleMin: String(benchmark.metaTitleMin ?? DEFAULT_SEO_BENCHMARK_VALUES.metaTitleMin),
+    metaTitleMax: String(benchmark.metaTitleMax ?? DEFAULT_SEO_BENCHMARK_VALUES.metaTitleMax),
+    metaDescriptionMin: String(benchmark.metaDescriptionMin ?? DEFAULT_SEO_BENCHMARK_VALUES.metaDescriptionMin),
+    metaDescriptionMax: String(benchmark.metaDescriptionMax ?? DEFAULT_SEO_BENCHMARK_VALUES.metaDescriptionMax),
+    snapshotsText: Array.isArray(item?.snapshots) && item.snapshots.length > 0 ? JSON.stringify(item.snapshots, null, 2) : "",
+  };
+};
+
 const normalizeProfileData = (data = {}, user = {}) => {
   const base = createProfileTemplate(user);
   const legacyAddress = {
@@ -311,6 +343,8 @@ export default function App() {
     notes: "",
     priority: "medium",
   });
+  const [seoBenchmarkDraft, setSeoBenchmarkDraft] = useState(createSeoBenchmarkDraft());
+  const [seoBenchmarkInfo, setSeoBenchmarkInfo] = useState(null);
   const [blogPosts, setBlogPosts] = useState([]);
   const [blogLoading, setBlogLoading] = useState(false);
   const [blogError, setBlogError] = useState("");
@@ -1915,11 +1949,22 @@ export default function App() {
     return data;
   };
 
+  const loadSeoCompetitorBenchmark = async () => {
+    const data = await callAdminSeoApi("/api/admin/seo/competitor-benchmark");
+    setSeoBenchmarkInfo({
+      item: data.item || null,
+      effectiveBenchmark: data.effectiveBenchmark || null,
+      message: data.message || "",
+    });
+    setSeoBenchmarkDraft(createSeoBenchmarkDraft(data.item, data.effectiveBenchmark));
+    return data;
+  };
+
   const loadSeoAdminData = async () => {
     setSeoLoading(true);
     setSeoError("");
     try {
-      await Promise.all([loadSeoAdminDashboard(), loadSeoAdminTasks()]);
+      await Promise.all([loadSeoAdminDashboard(), loadSeoAdminTasks(), loadSeoCompetitorBenchmark()]);
     } catch (error) {
       setSeoError(error?.message || "Could not load SEO admin data.");
     } finally {
@@ -2138,6 +2183,56 @@ export default function App() {
       setAdminMsg("Reminder logged for SEO task.");
     } catch (error) {
       setSeoError(error?.message || "Could not send reminder.");
+    }
+  };
+
+  const saveSeoCompetitorBenchmark = async () => {
+    setSeoLoading(true);
+    setSeoError("");
+    try {
+      let snapshots = [];
+      if (seoBenchmarkDraft.snapshotsText.trim()) {
+        const parsed = JSON.parse(seoBenchmarkDraft.snapshotsText);
+        if (!Array.isArray(parsed)) {
+          throw new Error("Snapshots JSON must be an array of competitor snapshot objects.");
+        }
+        snapshots = parsed;
+      }
+
+      const benchmark = {
+        wordCount: Number(seoBenchmarkDraft.wordCount),
+        headingCount: Number(seoBenchmarkDraft.headingCount),
+        internalLinks: Number(seoBenchmarkDraft.internalLinks),
+        externalLinks: Number(seoBenchmarkDraft.externalLinks),
+        keywordDensityMin: Number(seoBenchmarkDraft.keywordDensityMin),
+        keywordDensityMax: Number(seoBenchmarkDraft.keywordDensityMax),
+        metaTitleMin: Number(seoBenchmarkDraft.metaTitleMin),
+        metaTitleMax: Number(seoBenchmarkDraft.metaTitleMax),
+        metaDescriptionMin: Number(seoBenchmarkDraft.metaDescriptionMin),
+        metaDescriptionMax: Number(seoBenchmarkDraft.metaDescriptionMax),
+      };
+
+      const data = await callAdminSeoApi("/api/admin/seo/competitor-benchmark", {
+        method: "PUT",
+        body: JSON.stringify({
+          source: seoBenchmarkDraft.source,
+          notes: seoBenchmarkDraft.notes,
+          benchmark,
+          snapshots,
+        }),
+      });
+
+      setSeoBenchmarkInfo({
+        item: data.item || null,
+        effectiveBenchmark: data.effectiveBenchmark || null,
+        message: data.derivedFromSnapshots ? "Benchmark updated from competitor snapshots." : "Benchmark updated.",
+      });
+      setSeoBenchmarkDraft(createSeoBenchmarkDraft(data.item, data.effectiveBenchmark));
+      setAdminMsg(data.derivedFromSnapshots ? "Competitor benchmark updated from snapshots." : "Competitor benchmark updated.");
+    } catch (error) {
+      setSeoError(error?.message || "Could not save competitor benchmark.");
+    } finally {
+      setSeoLoading(false);
     }
   };
 
@@ -5521,6 +5616,71 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    <div style={{ background: "white", border: "1px solid #99f6e4", borderRadius: 8, padding: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a" }}>Competitor Benchmark</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button onClick={() => void loadSeoCompetitorBenchmark()} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Reload Benchmark</button>
+                          <button
+                            onClick={() => setSeoBenchmarkDraft(createSeoBenchmarkDraft(seoBenchmarkInfo?.item, seoBenchmarkInfo?.effectiveBenchmark))}
+                            style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}
+                          >
+                            Reset Form
+                          </button>
+                        </div>
+                      </div>
+
+                      {seoBenchmarkInfo?.message && (
+                        <div style={{ fontSize: 11, color: "#115e59", marginBottom: 8 }}>{seoBenchmarkInfo.message}</div>
+                      )}
+
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 920 ? "1fr" : "repeat(5, minmax(0, 1fr))", gap: 8 }}>
+                        <input value={seoBenchmarkDraft.wordCount} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, wordCount: e.target.value }))} placeholder="Word count" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.headingCount} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, headingCount: e.target.value }))} placeholder="Headings" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.internalLinks} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, internalLinks: e.target.value }))} placeholder="Internal links" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.externalLinks} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, externalLinks: e.target.value }))} placeholder="External links" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.source} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, source: e.target.value }))} placeholder="Source" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 920 ? "1fr" : "repeat(5, minmax(0, 1fr))", gap: 8, marginTop: 8 }}>
+                        <input value={seoBenchmarkDraft.keywordDensityMin} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, keywordDensityMin: e.target.value }))} placeholder="Keyword density min" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.keywordDensityMax} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, keywordDensityMax: e.target.value }))} placeholder="Keyword density max" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.metaTitleMin} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, metaTitleMin: e.target.value }))} placeholder="Meta title min" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.metaTitleMax} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, metaTitleMax: e.target.value }))} placeholder="Meta title max" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.metaDescriptionMin} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, metaDescriptionMin: e.target.value }))} placeholder="Meta description min" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 920 ? "1fr" : "1fr 1fr", gap: 8, marginTop: 8 }}>
+                        <input value={seoBenchmarkDraft.metaDescriptionMax} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, metaDescriptionMax: e.target.value }))} placeholder="Meta description max" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                        <input value={seoBenchmarkDraft.notes} onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                      </div>
+
+                      {seoBenchmarkInfo?.effectiveBenchmark && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                          {Object.entries(seoBenchmarkInfo.effectiveBenchmark).map(([key, value]) => (
+                            <span key={key} style={{ border: "1px solid #ccfbf1", borderRadius: 999, padding: "4px 8px", fontSize: 11, color: "#115e59", background: "#f0fdfa" }}>
+                              {key}: {String(value)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <textarea
+                        value={seoBenchmarkDraft.snapshotsText}
+                        onChange={(e) => setSeoBenchmarkDraft((prev) => ({ ...prev, snapshotsText: e.target.value }))}
+                        placeholder={'Competitor snapshots JSON array, for example: [{"domain":"example.com","keyword":"gaming phone kenya","wordCount":1500,"headingCount":8,"internalLinks":6,"externalLinks":2,"keywordDensity":1.4,"metaTitleLength":58,"metaDescriptionLength":148}]'}
+                        rows={6}
+                        style={{ width: "100%", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
+                      />
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <button onClick={() => void saveSeoCompetitorBenchmark()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>
+                          Save Benchmark
+                        </button>
+                        <div style={{ fontSize: 11, color: "#475569", display: "flex", alignItems: "center" }}>
+                          Paste SpyFu-style snapshot metrics here to auto-derive a new baseline.
+                        </div>
+                      </div>
+                    </div>
 
                     <div style={{ background: "white", border: "1px solid #99f6e4", borderRadius: 8, padding: 10 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#134e4a", marginBottom: 6 }}>Create SEO Follow-up</div>
