@@ -324,6 +324,7 @@ export default function App() {
   const [blogAdminItems, setBlogAdminItems] = useState([]);
   const [blogAdminEditingId, setBlogAdminEditingId] = useState("");
   const [blogDraftGenerating, setBlogDraftGenerating] = useState(false);
+  const [llmProviderHealth, setLlmProviderHealth] = useState({ activeProvider: "", providers: [] });
   const [blogGenerationConfig, setBlogGenerationConfig] = useState({
     provider: "github",
     audience: "Kenyan online shoppers",
@@ -1066,7 +1067,7 @@ export default function App() {
 
   useEffect(() => {
     if (page !== "admin" || !showBlogAdminPanel) return;
-    void loadAdminBlogArticles();
+    void Promise.all([loadAdminBlogArticles(), loadLlmProviderHealth()]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, showBlogAdminPanel]);
 
@@ -1994,6 +1995,20 @@ export default function App() {
       return null;
     } finally {
       setBlogAdminLoading(false);
+    }
+  };
+
+  const loadLlmProviderHealth = async () => {
+    try {
+      const data = await callAdminSeoApi("/api/admin/seo/llm-providers");
+      setLlmProviderHealth({
+        activeProvider: String(data?.activeProvider || ""),
+        providers: Array.isArray(data?.providers) ? data.providers : [],
+      });
+      return data;
+    } catch {
+      setLlmProviderHealth({ activeProvider: "", providers: [] });
+      return null;
     }
   };
 
@@ -5915,6 +5930,32 @@ export default function App() {
                     <div style={{ background: "white", border: "1px solid #bfdbfe", borderRadius: 8, padding: 10 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
                         {blogAdminEditingId ? "Edit Blog Article" : "Create Blog Article"}
+                      </div>
+                      <div style={{ border: "1px solid #dbeafe", borderRadius: 8, background: "#f8fbff", padding: 8, marginBottom: 8, display: "grid", gap: 6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#1e3a8a" }}>LLM Provider Health</div>
+                          <button onClick={() => void loadLlmProviderHealth()} style={{ ...outlineBtn, padding: "4px 8px", fontSize: 11 }}>Refresh Providers</button>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {(llmProviderHealth.providers || []).map((item) => (
+                            <span
+                              key={item.provider}
+                              style={{
+                                border: `1px solid ${item.configured ? "#86efac" : "#fecaca"}`,
+                                borderRadius: 999,
+                                padding: "4px 8px",
+                                fontSize: 11,
+                                color: item.configured ? "#166534" : "#991b1b",
+                                background: item.configured ? "#f0fdf4" : "#fef2f2",
+                              }}
+                            >
+                              {item.provider}{item.isActive ? " (active)" : ""}: {item.configured ? "ready" : "missing key"}
+                            </span>
+                          ))}
+                          {(!llmProviderHealth.providers || llmProviderHealth.providers.length === 0) && (
+                            <span style={{ fontSize: 11, color: "#64748b" }}>Provider status unavailable. Verify admin auth and backend env settings.</span>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "1fr 2fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
                         <select

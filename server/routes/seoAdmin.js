@@ -868,6 +868,41 @@ export const getAdminSeoTasks = async ({ headers = {}, query = {} } = {}) => {
   }
 };
 
+export const getAdminLlmProviderHealth = async ({ headers = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  try {
+    const activeProvider = normalizeLlmProvider(process.env.LLM_PROVIDER || "github");
+    const providers = ["github", "openai", "anthropic", "grok"].map((providerName) => {
+      const config = resolveLlmProviderConfig({ providerInput: providerName });
+      return {
+        provider: providerName,
+        configured: Boolean(config.apiKey),
+        model: config.model,
+        apiUrl: config.apiUrl,
+        isActive: providerName === activeProvider,
+      };
+    });
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        activeProvider,
+        providers,
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: { ok: false, message: error?.message || "Failed to load LLM provider health" },
+    };
+  }
+};
+
 export const createAdminSeoTask = async ({ headers = {}, body = {} } = {}) => {
   const auth = await requireAdminRequest(headers);
   if (!auth.ok) {

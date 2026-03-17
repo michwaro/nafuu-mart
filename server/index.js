@@ -20,6 +20,7 @@ import {
   createAdminSeoTask,
   getAdminSeoCompetitorBenchmark,
   getAdminSeoDashboard,
+  getAdminLlmProviderHealth,
   getAdminSeoTasks,
   remindAdminSeoTask,
   upsertAdminSeoCompetitorBenchmark,
@@ -278,6 +279,10 @@ app.get("/api/admin/seo/tasks", (req, res) => {
 
 app.get("/api/admin/seo/competitor-benchmark", (req, res) => {
   void sendHandlerResult(res, getAdminSeoCompetitorBenchmark({ headers: req.headers }));
+});
+
+app.get("/api/admin/seo/llm-providers", (req, res) => {
+  void sendHandlerResult(res, getAdminLlmProviderHealth({ headers: req.headers }));
 });
 
 app.put("/api/admin/seo/competitor-benchmark", (req, res) => {
