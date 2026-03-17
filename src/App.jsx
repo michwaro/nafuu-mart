@@ -325,6 +325,7 @@ export default function App() {
   const [blogAdminEditingId, setBlogAdminEditingId] = useState("");
   const [blogDraftGenerating, setBlogDraftGenerating] = useState(false);
   const [blogGenerationConfig, setBlogGenerationConfig] = useState({
+    provider: "github",
     audience: "Kenyan online shoppers",
     intent: "commercial",
     tone: "helpful and confident",
@@ -2118,6 +2119,7 @@ export default function App() {
         body: JSON.stringify({
           title: blogAdminDraft.title,
           focusKeyword: blogAdminDraft.focusKeyword,
+          provider: blogGenerationConfig.provider,
           audience: blogGenerationConfig.audience,
           intent: blogGenerationConfig.intent,
           tone: blogGenerationConfig.tone,
@@ -2137,7 +2139,7 @@ export default function App() {
         metaDescription: next.metaDescription || prev.metaDescription,
         status: "draft",
       }));
-      setAdminMsg(`AI draft generated using ${data?.modelUsed || "configured model"}.`);
+      setAdminMsg(`AI draft generated using ${data?.providerUsed || blogGenerationConfig.provider} · ${data?.modelUsed || "configured model"}.`);
     } catch (error) {
       setBlogAdminError(error?.message || "Could not generate AI draft.");
     } finally {
@@ -5914,7 +5916,17 @@ export default function App() {
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
                         {blogAdminEditingId ? "Edit Blog Article" : "Create Blog Article"}
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "2fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "1fr 2fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <select
+                          value={blogGenerationConfig.provider}
+                          onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, provider: e.target.value }))}
+                          style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", background: "#fff" }}
+                        >
+                          <option value="github">GitHub Models</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="anthropic">Claude (Anthropic)</option>
+                          <option value="grok">Grok (xAI)</option>
+                        </select>
                         <input
                           value={blogGenerationConfig.audience}
                           onChange={(e) => setBlogGenerationConfig((prev) => ({ ...prev, audience: e.target.value }))}

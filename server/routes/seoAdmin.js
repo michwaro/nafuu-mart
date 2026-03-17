@@ -286,6 +286,73 @@ const toSafeHtmlParagraphs = (value = "") => {
   return lines.map((line) => `<p>${line}</p>`).join("\n");
 };
 
+const normalizeLlmProvider = (value = "") => {
+  const provider = String(value || "").trim().toLowerCase();
+  if (provider === "claude" || provider === "anthropic") return "anthropic";
+  if (provider === "grok" || provider === "xai") return "grok";
+  if (provider === "openai") return "openai";
+  if (provider === "github") return "github";
+  return "github";
+};
+
+const resolveLlmProviderConfig = ({ providerInput = "", modelOverride = "" } = {}) => {
+  const provider = normalizeLlmProvider(providerInput || process.env.LLM_PROVIDER || "github");
+
+  if (provider === "anthropic") {
+    const apiKey = String(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || "").trim();
+    const apiUrl = String(process.env.ANTHROPIC_API_URL || "https://api.anthropic.com/v1/messages").trim();
+    const model = modelOverride || String(process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || "claude-sonnet-4-5").trim();
+    return {
+      provider,
+      apiType: "anthropic",
+      apiKey,
+      apiUrl,
+      model,
+      missingKeyMessage: "Claude is not configured. Set ANTHROPIC_API_KEY (or CLAUDE_API_KEY).",
+    };
+  }
+
+  if (provider === "grok") {
+    const apiKey = String(process.env.XAI_API_KEY || process.env.GROK_API_KEY || "").trim();
+    const apiUrl = String(process.env.XAI_API_URL || "https://api.x.ai/v1/chat/completions").trim();
+    const model = modelOverride || String(process.env.XAI_MODEL || process.env.GROK_MODEL || "grok-3-mini").trim();
+    return {
+      provider,
+      apiType: "openai-compatible",
+      apiKey,
+      apiUrl,
+      model,
+      missingKeyMessage: "Grok is not configured. Set XAI_API_KEY (or GROK_API_KEY).",
+    };
+  }
+
+  if (provider === "openai") {
+    const apiKey = String(process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || "").trim();
+    const apiUrl = String(process.env.OPENAI_API_URL || "https://api.openai.com/v1/chat/completions").trim();
+    const model = modelOverride || String(process.env.OPENAI_MODEL || process.env.LLM_MODEL || "gpt-5-mini").trim();
+    return {
+      provider,
+      apiType: "openai-compatible",
+      apiKey,
+      apiUrl,
+      model,
+      missingKeyMessage: "OpenAI is not configured. Set OPENAI_API_KEY (or LLM_API_KEY).",
+    };
+  }
+
+  const apiKey = String(process.env.GITHUB_TOKEN || process.env.LLM_API_KEY || "").trim();
+  const apiUrl = String(process.env.LLM_API_URL || "https://models.github.ai/inference/chat/completions").trim();
+  const model = modelOverride || String(process.env.LLM_MODEL || "openai/gpt-5-mini").trim();
+  return {
+    provider: "github",
+    apiType: "openai-compatible",
+    apiKey,
+    apiUrl,
+    model,
+    missingKeyMessage: "GitHub Models is not configured. Set GITHUB_TOKEN (or LLM_API_KEY).",
+  };
+};
+
 const buildBlogSeoRecommendations = ({ article = {}, signals = {}, benchmark = DEFAULT_COMPETITOR_BENCHMARK } = {}) => {
   const safeBenchmark = normalizeBenchmark(benchmark);
   const breakdown = signals.breakdown || {};
@@ -1229,6 +1296,7 @@ export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) =
   const audience = String(body.audience || "Kenyan online shoppers").trim();
   const intent = String(body.intent || "commercial").trim();
   const tone = String(body.tone || "helpful and confident").trim();
+  const providerInput = String(body.provider || "").trim();
   const customModel = String(body.model || "").trim();
 
   if (!titleHint && !focusKeyword) {
@@ -1238,19 +1306,20 @@ export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) =
     };
   }
 
-  const apiKey = String(process.env.LLM_API_KEY || "").trim();
+  const llm = resolveLlmProviderConfig({ providerInput, modelOverride: customModel });
+  const apiKey = llm.apiKey;
   if (!apiKey) {
     return {
       status: 503,
       body: {
         ok: false,
-        message: "LLM is not configured. Set LLM_API_KEY (and optionally LLM_API_URL, LLM_MODEL).",
+        message: llm.missingKeyMessage,
       },
     };
   }
 
-  const apiUrl = String(process.env.LLM_API_URL || "https://models.github.ai/inference/chat/completions").trim();
-  const model = customModel || String(process.env.LLM_MODEL || "openai/gpt-5-mini").trim();
+  const apiUrl = llm.apiUrl;
+  const model = llm.model;
 
   const prompt = {
     topic: titleHint || focusKeyword,
@@ -1279,27 +1348,44 @@ export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) =
   };
 
   try {
+    const systemPrompt =
+      "You are an SEO content strategist for an ecommerce store. Return ONLY valid JSON matching the requested schema. No markdown wrappers.";
+    const userPrompt = `Generate a high-quality blog article draft using this JSON input: ${JSON.stringify(prompt)}`;
+
+    const requestBody =
+      llm.apiType === "anthropic"
+        ? {
+            model,
+            max_tokens: 2400,
+            temperature: 0.4,
+            system: systemPrompt,
+            messages: [{ role: "user", content: userPrompt }],
+          }
+        : {
+            model,
+            temperature: 0.4,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+          };
+
+    const requestHeaders =
+      llm.apiType === "anthropic"
+        ? {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          }
+        : {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          };
+
     const response = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an SEO content strategist for an ecommerce store. Return ONLY valid JSON matching the requested schema. No markdown wrappers.",
-          },
-          {
-            role: "user",
-            content: `Generate a high-quality blog article draft using this JSON input: ${JSON.stringify(prompt)}`,
-          },
-        ],
-      }),
+      headers: requestHeaders,
+      body: JSON.stringify(requestBody),
     });
 
     const data = await response.json().catch(() => ({}));
@@ -1314,6 +1400,7 @@ export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) =
     }
 
     const rawText =
+      data?.content?.[0]?.text ||
       data?.choices?.[0]?.message?.content ||
       data?.output?.[0]?.content?.[0]?.text ||
       "";
@@ -1349,6 +1436,7 @@ export const generateAdminBlogDraft = async ({ headers = {}, body = {} } = {}) =
       body: {
         ok: true,
         item,
+        providerUsed: llm.provider,
         modelUsed: model,
       },
     };
