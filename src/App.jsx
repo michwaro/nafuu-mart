@@ -6951,7 +6951,7 @@ export default function App() {
 
   if (page === "auth") {
 
-    if (forcedClerkMode) {
+    if (clerkModeMisconfigured) {
       return (
         <>
           <style>{G}</style>
@@ -7119,6 +7119,15 @@ export default function App() {
                       style={{ ...outlineBtn, width: "100%", justifyContent: "center", opacity: authPending ? 0.65 : 1 }}
                     >
                       Continue with Apple
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => signInWithSocial("oauth_facebook")}
+                      disabled={authPending}
+                      style={{ ...outlineBtn, width: "100%", justifyContent: "center", opacity: authPending ? 0.65 : 1 }}
+                    >
+                      Continue with Facebook
                     </button>
                   </div>
                 </div>
