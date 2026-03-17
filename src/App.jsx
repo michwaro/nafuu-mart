@@ -324,6 +324,7 @@ export default function App() {
   const [blogAdminItems, setBlogAdminItems] = useState([]);
   const [blogAdminEditingId, setBlogAdminEditingId] = useState("");
   const [blogDraftGenerating, setBlogDraftGenerating] = useState(false);
+  const [blogProviderTesting, setBlogProviderTesting] = useState(false);
   const [llmProviderHealth, setLlmProviderHealth] = useState({ activeProvider: "", providers: [] });
   const [blogGenerationConfig, setBlogGenerationConfig] = useState({
     provider: "github",
@@ -2159,6 +2160,27 @@ export default function App() {
       setBlogAdminError(error?.message || "Could not generate AI draft.");
     } finally {
       setBlogDraftGenerating(false);
+    }
+  };
+
+  const testSelectedBlogProvider = async () => {
+    setBlogProviderTesting(true);
+    setBlogAdminError("");
+    try {
+      const data = await callAdminSeoApi("/api/admin/seo/llm-providers/test", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: blogGenerationConfig.provider,
+          model: blogGenerationConfig.model,
+        }),
+      });
+      setAdminMsg(`Provider test passed: ${data?.provider || blogGenerationConfig.provider} · ${data?.model || "default model"}`);
+      await loadLlmProviderHealth();
+    } catch (error) {
+      setBlogAdminError(error?.message || "Provider test failed.");
+      await loadLlmProviderHealth();
+    } finally {
+      setBlogProviderTesting(false);
     }
   };
 
@@ -5934,7 +5956,12 @@ export default function App() {
                       <div style={{ border: "1px solid #dbeafe", borderRadius: 8, background: "#f8fbff", padding: 8, marginBottom: 8, display: "grid", gap: 6 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: "#1e3a8a" }}>LLM Provider Health</div>
-                          <button onClick={() => void loadLlmProviderHealth()} style={{ ...outlineBtn, padding: "4px 8px", fontSize: 11 }}>Refresh Providers</button>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <button onClick={() => void testSelectedBlogProvider()} disabled={blogProviderTesting} style={{ ...outlineBtn, padding: "4px 8px", fontSize: 11 }}>
+                              {blogProviderTesting ? "Testing..." : "Test Selected Provider"}
+                            </button>
+                            <button onClick={() => void loadLlmProviderHealth()} style={{ ...outlineBtn, padding: "4px 8px", fontSize: 11 }}>Refresh Providers</button>
+                          </div>
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {(llmProviderHealth.providers || []).map((item) => (

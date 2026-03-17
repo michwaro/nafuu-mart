@@ -903,6 +903,98 @@ export const getAdminLlmProviderHealth = async ({ headers = {} } = {}) => {
   }
 };
 
+export const testAdminLlmProvider = async ({ headers = {}, body = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  const providerInput = String(body.provider || "").trim();
+  const modelOverride = String(body.model || "").trim();
+  const llm = resolveLlmProviderConfig({ providerInput, modelOverride });
+
+  if (!llm.apiKey) {
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        provider: llm.provider,
+        model: llm.model,
+        message: llm.missingKeyMessage,
+      },
+    };
+  }
+
+  try {
+    const requestBody =
+      llm.apiType === "anthropic"
+        ? {
+            model: llm.model,
+            max_tokens: 20,
+            temperature: 0,
+            system: "You are a health-check assistant. Reply with: ok",
+            messages: [{ role: "user", content: "Reply with ok" }],
+          }
+        : {
+            model: llm.model,
+            max_tokens: 20,
+            temperature: 0,
+            messages: [{ role: "user", content: "Reply with ok" }],
+          };
+
+    const requestHeaders =
+      llm.apiType === "anthropic"
+        ? {
+            "Content-Type": "application/json",
+            "x-api-key": llm.apiKey,
+            "anthropic-version": "2023-06-01",
+          }
+        : {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${llm.apiKey}`,
+          };
+
+    const response = await fetch(llm.apiUrl, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        status: 502,
+        body: {
+          ok: false,
+          provider: llm.provider,
+          model: llm.model,
+          message: data?.error?.message || data?.message || "Provider connection test failed.",
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        provider: llm.provider,
+        model: llm.model,
+        message: "Provider connection test succeeded.",
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: {
+        ok: false,
+        provider: llm.provider,
+        model: llm.model,
+        message: error?.message || "Provider connection test failed.",
+      },
+    };
+  }
+};
+
 export const createAdminSeoTask = async ({ headers = {}, body = {} } = {}) => {
   const auth = await requireAdminRequest(headers);
   if (!auth.ok) {

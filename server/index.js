@@ -23,6 +23,7 @@ import {
   getAdminLlmProviderHealth,
   getAdminSeoTasks,
   remindAdminSeoTask,
+  testAdminLlmProvider,
   upsertAdminSeoCompetitorBenchmark,
   updateAdminBlogArticle,
   updateAdminSeoTask,
@@ -283,6 +284,10 @@ app.get("/api/admin/seo/competitor-benchmark", (req, res) => {
 
 app.get("/api/admin/seo/llm-providers", (req, res) => {
   void sendHandlerResult(res, getAdminLlmProviderHealth({ headers: req.headers }));
+});
+
+app.post("/api/admin/seo/llm-providers/test", (req, res) => {
+  void sendHandlerResult(res, testAdminLlmProvider({ headers: req.headers, body: req.body }));
 });
 
 app.put("/api/admin/seo/competitor-benchmark", (req, res) => {
