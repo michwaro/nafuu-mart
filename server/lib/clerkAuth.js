@@ -1,4 +1,5 @@
 import { verifyToken } from "@clerk/backend";
+import { hasAdminAccess, normalizeEmail } from "../../shared/adminAccess.js";
 
 export const getBearerToken = (headers = {}) => {
   const authHeader = headers.authorization || headers.Authorization || "";
@@ -31,14 +32,22 @@ export const isAdminPayload = (payload = {}) => {
   const unsafeMetadata = payload.unsafeMetadata || payload.unsafe_metadata || {};
   const privateMetadata = payload.privateMetadata || payload.private_metadata || {};
   const role = payload.orgRole || payload.org_role || payload.role || "";
-
-  return Boolean(
-    publicMetadata.isAdmin ||
-      unsafeMetadata.isAdmin ||
-      privateMetadata.isAdmin ||
-      role === "org:admin" ||
-      role === "admin"
+  const emailFromPayload = normalizeEmail(
+    payload.email ||
+      payload.emailAddress ||
+      payload.email_address ||
+      payload.primaryEmailAddress ||
+      payload.primary_email_address ||
+      ""
   );
+
+  return hasAdminAccess({
+    email: emailFromPayload,
+    publicMetadata,
+    unsafeMetadata,
+    privateMetadata,
+    role,
+  });
 };
 
 export const requireAdminRequest = async (headers = {}) => {

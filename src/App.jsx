@@ -19,6 +19,7 @@ import { PageMeta, ProductMeta, BreadcrumbMeta, FAQMeta, LocalBusinessMeta, Blog
 import { SOCIAL_PLATFORMS, generateShareLinks, SHARE_BUTTON_STYLE } from "./socialConfig";
 import { generateKeywords } from "./contentGenerator";
 import { PRODUCTS } from "./fallbackProducts";
+import { hasAdminAccess, normalizeEmail } from "../shared/adminAccess";
 
 const ORDERS_KEY = "nafuu-orders";
 const CART_KEY = "nafuu-cart";
@@ -41,7 +42,7 @@ const CATEGORY_MENU = [
     key: "laptop", 
     label: "Laptops", 
     desc: "Ex-UK refurbished & brand new",
-    icon: "LAP",
+    image: "/cat-laptops.jpeg",
     color: "#e8f8ed",
     count: () => PRODUCTS.filter(p => p.category === "laptop").length
   },
@@ -49,7 +50,7 @@ const CATEGORY_MENU = [
     key: "phone", 
     label: "Phones", 
     desc: "Smartphones from trusted brands",
-    icon: "PHN",
+    image: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=900&h=620&fit=crop",
     color: "#f0f7ff",
     count: () => PRODUCTS.filter(p => p.category === "phone").length
   },
@@ -57,7 +58,7 @@ const CATEGORY_MENU = [
     key: "audio", 
     label: "Audio", 
     desc: "Earbuds, headphones & speakers",
-    icon: "AUD",
+    image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=900&h=620&fit=crop",
     color: "#fef3f2",
     count: () => PRODUCTS.filter(p => p.category === "audio").length
   },
@@ -65,7 +66,7 @@ const CATEGORY_MENU = [
     key: "accessory", 
     label: "Accessories", 
     desc: "Chargers, cables & protection",
-    icon: "ACC",
+    image: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=900&h=620&fit=crop",
     color: "#fef9e8",
     count: () => PRODUCTS.filter(p => p.category === "accessory").length
   },
@@ -73,7 +74,7 @@ const CATEGORY_MENU = [
     key: "electronics", 
     label: "Electronics", 
     desc: "Fans, bulbs & home essentials",
-    icon: "ELE",
+    image: "https://images.unsplash.com/photo-1558002038-1055907df827?w=900&h=620&fit=crop",
     color: "#f5f3ff",
     count: () => PRODUCTS.filter(p => p.category === "electronics").length
   },
@@ -317,8 +318,7 @@ export default function App() {
   const [seoTasks, setSeoTasks] = useState([]);
   const [seoLoading, setSeoLoading] = useState(false);
   const [seoError, setSeoError] = useState("");
-  const [showSeoPanel, setShowSeoPanel] = useState(false);
-  const [showBlogAdminPanel, setShowBlogAdminPanel] = useState(false);
+  const [adminWorkspace, setAdminWorkspace] = useState("catalog");
   const [blogAdminLoading, setBlogAdminLoading] = useState(false);
   const [blogAdminError, setBlogAdminError] = useState("");
   const [blogAdminItems, setBlogAdminItems] = useState([]);
@@ -378,7 +378,6 @@ export default function App() {
   const [bulkPreview, setBulkPreview] = useState(null); // { rows: [], fileName: "" }
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState(null); // { inserted, updated, failed }
-  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkImages, setBulkImages] = useState({}); // { filename: base64_string }
   const [adminForm, setAdminForm] = useState({
     brand: "",
@@ -412,7 +411,7 @@ export default function App() {
     return {
       name: clerkUser?.firstName || clerkUser?.fullName || clerkEmail.split("@")[0] || "Nafuu User",
       email: clerkEmail,
-      isAdmin: Boolean(metadata.isAdmin || role === "org:admin" || role === "admin"),
+      isAdmin: hasAdminAccess({ email: clerkEmail, publicMetadata: metadata, role }),
     };
   };
 
@@ -955,7 +954,7 @@ export default function App() {
           const clerkUser = window.Clerk.user;
           const metadata = clerkUser?.publicMetadata || {};
           const role = String(clerkUser?.organizationMemberships?.[0]?.role || "");
-          const isAdmin = Boolean(metadata.isAdmin || role === "org:admin" || role === "admin");
+          const isAdmin = hasAdminAccess({ email: clerkEmail, publicMetadata: metadata, role });
           if (mounted) {
             setCurrentUser({
               name: clerkUser?.firstName || clerkUser?.fullName || clerkEmail.split("@")[0] || "Nafuu User",
@@ -1061,16 +1060,16 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    if (page !== "admin" || !showSeoPanel) return;
+    if (page !== "admin" || adminWorkspace !== "seo") return;
     void loadSeoAdminData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, showSeoPanel]);
+  }, [page, adminWorkspace]);
 
   useEffect(() => {
-    if (page !== "admin" || !showBlogAdminPanel) return;
+    if (page !== "admin" || adminWorkspace !== "blog") return;
     void Promise.all([loadAdminBlogArticles(), loadLlmProviderHealth()]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, showBlogAdminPanel]);
+  }, [page, adminWorkspace]);
 
   // Sync wishlist and stock alerts from backend whenever the user signs in
   useEffect(() => {
@@ -1369,6 +1368,44 @@ export default function App() {
       .filter((p) => p.category === category)
       .filter((p) => brandSubdivision === "all" || p.brand === brandSubdivision)
       .filter((p) => getModelFamily(p) === family).length;
+  const adminWorkspaceLabels = {
+    catalog: "Catalog",
+    bulk: "Bulk Upload",
+    analytics: "Analytics",
+    seo: "SEO Ops",
+    blog: "Blog Admin",
+  };
+  const adminWorkspaceHeaderLabels = {
+    catalog: "Catalog",
+    bulk: "Bulk",
+    analytics: "Analytics",
+    seo: "SEO",
+    blog: "Blog",
+  };
+  const adminQuickStats = [
+    { label: "Products", value: catalog.length, tone: "#0f172a", bg: "#f8fafc", border: "#e2e8f0" },
+    {
+      label: "Out of Stock",
+      value: catalog.filter((p) => p.stockStatus === "out_of_stock").length,
+      tone: "#9a3412",
+      bg: "#fff7ed",
+      border: "#fed7aa",
+    },
+    {
+      label: "SEO Open Tasks",
+      value: seoTasks.filter((task) => task.status !== "completed").length,
+      tone: "#155e75",
+      bg: "#ecfeff",
+      border: "#a5f3fc",
+    },
+    {
+      label: "Blog Articles",
+      value: blogAdminItems.length,
+      tone: "#1e3a8a",
+      bg: "#eff6ff",
+      border: "#bfdbfe",
+    },
+  ];
 
   const sendEmailNotification = async (type, data) => {
     // Email notification framework - integrate with email service (e.g., SendGrid, Resend, AWS SES)
@@ -3231,10 +3268,16 @@ export default function App() {
           await window.Clerk.setActive({ session: result.createdSessionId });
           const cu = window.Clerk.user;
           if (cu) {
+            const signedInEmail = normalizeEmail(cu.primaryEmailAddress?.emailAddress || email);
+            const role = String(cu.organizationMemberships?.[0]?.role || "");
             setCurrentUser({
               name: cu.firstName || cu.fullName || email.split("@")[0],
               email: cu.primaryEmailAddress?.emailAddress || email,
-              isAdmin: Boolean(cu.publicMetadata?.isAdmin),
+              isAdmin: hasAdminAccess({
+                email: signedInEmail,
+                publicMetadata: cu.publicMetadata,
+                role,
+              }),
             });
           }
           setPage("home");
@@ -3542,7 +3585,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {!compact && (
+        {!compact && page !== "admin" && (
           <div style={{ borderBottom: "1px solid var(--line)", background: "#f5f5f3" }}>
             <div style={{ maxWidth: 1240, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40, padding: "0 20px" }}>
               <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
@@ -3557,7 +3600,7 @@ export default function App() {
         )}
 
         <div style={{ borderBottom: "1px solid var(--line)", background: "#fafaf9" }}>
-          <div style={{ maxWidth: 1240, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : "auto 1fr auto", gap: 16, alignItems: "center", padding: "14px 20px" }}>
+          <div style={{ maxWidth: 1240, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : page === "admin" ? "auto auto" : "auto 1fr auto", gap: 16, alignItems: "center", padding: "14px 20px" }}>
             <button onClick={() => { setPage("home"); setSearch(""); setCategory("all"); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, justifySelf: compact ? "start" : "auto" }}>
               <div style={{ width: 36, height: 36, borderRadius: 9, background: "var(--ink)", color: "var(--sun)", fontWeight: 800, display: "grid", placeItems: "center", fontSize: 18 }}>N</div>
               <div style={{ textAlign: "left" }}>
@@ -3566,41 +3609,72 @@ export default function App() {
               </div>
             </button>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                submitSearch(navSearch);
-              }}
-              style={{ width: "100%", display: "grid", gridTemplateColumns: viewportWidth < 520 ? "1fr" : "1fr auto", gap: 8, background: "#fff", borderRadius: 14, border: "1px solid var(--line)", padding: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}
-            >
-              <div style={{ width: "100%", display: "flex", alignItems: "center", minHeight: 44, padding: "0 10px" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5, marginRight: 10, flexShrink: 0 }}>
-                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <input
-                  value={navSearch}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setNavSearch(value);
-                    if (page === "products") setSearch(value);
-                  }}
-                  placeholder="Search for a laptop, phone, or audio..."
-                  style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 14, color: "var(--ink)" }}
-                />
-              </div>
-              <button type="submit" style={{ border: "none", background: "var(--ink)", color: "#fff", borderRadius: 10, minHeight: 44, padding: "0 16px", fontWeight: 700, fontSize: 14, cursor: "pointer", transition: "all .2s ease" }}>
-                Search
-              </button>
-            </form>
+            {page !== "admin" && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitSearch(navSearch);
+                }}
+                style={{ width: "100%", display: "grid", gridTemplateColumns: viewportWidth < 520 ? "1fr" : "1fr auto", gap: 8, background: "#fff", borderRadius: 14, border: "1px solid var(--line)", padding: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}
+              >
+                <div style={{ width: "100%", display: "flex", alignItems: "center", minHeight: 44, padding: "0 10px" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5, marginRight: 10, flexShrink: 0 }}>
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                  <input
+                    value={navSearch}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setNavSearch(value);
+                      if (page === "products") setSearch(value);
+                    }}
+                    placeholder="Search for a laptop, phone, or audio..."
+                    style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 14, color: "var(--ink)" }}
+                  />
+                </div>
+                <button type="submit" style={{ border: "none", background: "var(--ink)", color: "#fff", borderRadius: 10, minHeight: 44, padding: "0 16px", fontWeight: 700, fontSize: 14, cursor: "pointer", transition: "all .2s ease" }}>
+                  Search
+                </button>
+              </form>
+            )}
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", justifySelf: compact ? "start" : "end", position: "relative" }}>
-              {activeUser?.isAdmin && <button onClick={() => setPage("admin")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Admin</button>}
-              {hasActiveSession && <button onClick={() => setPage("my-orders")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>My Orders</button>}
-              {hasActiveSession && <button onClick={() => setPage("profile")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Profile</button>}
-              <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Deals</button>
-              <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={actionBtn}>Trade-in</button>
-              <button onClick={() => { setPage("track"); setTrackedOrder(null); }} style={{ ...actionBtn, display: compact ? "none" : "flex", alignItems: "center", gap: 6 }}>Need help?</button>
+              {page === "admin" && activeUser?.isAdmin && (
+                <select
+                  value={adminWorkspace}
+                  onChange={(e) => {
+                    const workspaceKey = e.target.value;
+                    setAdminWorkspace(workspaceKey);
+                    if (workspaceKey === "analytics") calculateAdminStats();
+                  }}
+                  style={{ width: 132, border: "1px solid var(--line)", borderRadius: 10, padding: "8px 10px", background: "#fff", color: "var(--ink)", fontSize: 12, fontWeight: 700 }}
+                >
+                  {Object.entries(adminWorkspaceLabels).map(([key, label]) => (
+                    <option key={key} value={key}>{adminWorkspaceHeaderLabels[key] || label}</option>
+                  ))}
+                </select>
+              )}
+              {page !== "admin" && activeUser?.isAdmin && <button onClick={() => setPage("admin")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Admin</button>}
+              {page !== "admin" && hasActiveSession && <button onClick={() => setPage("my-orders")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>My Orders</button>}
+              {page !== "admin" && hasActiveSession && <button onClick={() => setPage("profile")} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Profile</button>}
+              {page !== "admin" && (
+                <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={{ ...actionBtn, display: compact ? "none" : "inline-flex" }}>Deals</button>
+              )}
+              {page !== "admin" && (
+                <button onClick={() => { setPage("products"); setSortBy("saving"); }} style={actionBtn}>Trade-in</button>
+              )}
+              {page !== "admin" && (
+                <button onClick={() => { setPage("track"); setTrackedOrder(null); }} style={{ ...actionBtn, display: compact ? "none" : "flex", alignItems: "center", gap: 6 }}>Need help?</button>
+              )}
+              {page === "admin" && hasActiveSession && (
+                <button onClick={() => setPage("profile")} style={iconBtn} title="Profile" aria-label="Profile">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="8" r="4"/>
+                    <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={hasActiveSession ? signOut : () => openAuth("signin")}
                 style={{ ...iconBtn, minWidth: 44, minHeight: 44 }}
@@ -3620,6 +3694,7 @@ export default function App() {
                   </svg>
                 )}
               </button>
+              {page !== "admin" && (
               <button onClick={() => setPage("wishlist")} style={{ ...iconBtn, position: "relative" }} title="Wishlist">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
@@ -3630,14 +3705,24 @@ export default function App() {
                   </span>
                 )}
               </button>
+              )}
+              {page !== "admin" && (
               <button onClick={() => setPage("compare")} style={{ ...iconBtn, position: "relative" }} title="Compare Products">
-                <span>CMP</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="16 3 21 3 21 8" />
+                  <line x1="4" y1="20" x2="21" y2="3" />
+                  <polyline points="8 21 3 21 3 16" />
+                  <line x1="15" y1="15" x2="21" y2="21" />
+                  <line x1="3" y1="3" x2="9" y2="9" />
+                </svg>
                 {compareList.length > 0 && (
                   <span style={{ position: "absolute", top: -4, right: -4, background: "var(--green)", color: "#fff", borderRadius: 10, fontSize: 10, fontWeight: 700, minWidth: 18, height: 18, display: "grid", placeItems: "center", padding: "0 5px" }}>
                     {compareList.length}
                   </span>
                 )}
               </button>
+              )}
+              {page !== "admin" && (
               <button onClick={() => setPage("cart")} style={{ ...iconBtn, position: "relative" }} title="Shopping Cart">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
@@ -3650,63 +3735,76 @@ export default function App() {
                   </span>
                 )}
               </button>
+              )}
             </div>
           </div>
         </div>
 
-        <div style={{ background: "#fafaf9", borderBottom: "1px solid var(--line)" }}>
-          <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 20px", position: "relative" }}>
-            <div style={{ display: "flex", gap: 28, alignItems: "center", overflowX: "auto", minHeight: 50, whiteSpace: "nowrap", scrollbarWidth: "none" }}>
-              {rail.map((item) => (
-                <button
-                  key={item.key}
-                  onMouseEnter={() => {
-                    if (item.key === "all") setCategoryDropdown(true);
-                  }}
-                  onClick={item.action}
-                  style={{
-                    ...topNavItem,
-                    color: item.key === category ? "var(--cherry)" : "var(--ink)",
-                  }}
+        {page !== "admin" && (
+          <div style={{ background: "#fafaf9", borderBottom: "1px solid var(--line)" }}>
+            <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 20px", position: "relative" }}>
+              <div style={{ display: "flex", gap: 28, alignItems: "center", overflowX: "auto", minHeight: 50, whiteSpace: "nowrap", scrollbarWidth: "none" }}>
+                {rail.map((item) => (
+                  <button
+                    key={item.key}
+                    onMouseEnter={() => {
+                      if (item.key === "all") setCategoryDropdown(true);
+                    }}
+                    onClick={item.action}
+                    style={{
+                      ...topNavItem,
+                      color: item.key === category ? "var(--cherry)" : "var(--ink)",
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <div
+                  onMouseEnter={() => setCategoryDropdown(true)}
+                  onMouseLeave={() => setCategoryDropdown(false)}
+                  style={{ position: "relative", marginLeft: "auto" }}
                 >
-                  {item.label}
-                </button>
-              ))}
-              <div
-                onMouseEnter={() => setCategoryDropdown(true)}
-                onMouseLeave={() => setCategoryDropdown(false)}
-                style={{ position: "relative", marginLeft: "auto" }}
-              >
-                <button style={{ ...topNavItem, display: "flex", alignItems: "center", gap: 6 }}>
-                  Browse categories
-                  <span style={{ fontSize: 10, transform: categoryDropdown ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}>v</span>
-                </button>
-                {categoryDropdown && (
-                  <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: 16, width: compact ? 330 : 560, boxShadow: "0 14px 34px rgba(0,0,0,.14)", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2,minmax(0,1fr))", gap: 10 }}>
-                    {CATEGORY_MENU.map((cat) => (
-                      <button
-                        key={cat.key}
-                        onClick={() => {
-                          setCategory(cat.key);
-                          setPage("products");
-                          setCategoryDropdown(false);
-                        }}
-                        style={{ display: "grid", gridTemplateColumns: "68px 1fr", gap: 10, border: "1px solid #e8e8df", borderRadius: 12, background: "#fff", cursor: "pointer", textAlign: "left", overflow: "hidden" }}
-                      >
-                        <div style={{ background: cat.color, display: "grid", placeItems: "center", fontSize: 30 }}>{cat.icon}</div>
-                        <div style={{ padding: "10px 10px 10px 0" }}>
-                          <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>{cat.label}</div>
-                          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 5 }}>{cat.desc}</div>
-                          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>{categoryCount(cat.key)} products</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  <button style={{ ...topNavItem, display: "flex", alignItems: "center", gap: 6 }}>
+                    Browse categories
+                    <span style={{ fontSize: 10, transform: categoryDropdown ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}>v</span>
+                  </button>
+                  {categoryDropdown && (
+                    <div style={{ position: "absolute", right: 0, top: "calc(100% + 10px)", background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: 16, width: compact ? 330 : 560, boxShadow: "0 14px 34px rgba(0,0,0,.14)", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2,minmax(0,1fr))", gap: 10 }}>
+                      {CATEGORY_MENU.map((cat) => (
+                        <button
+                          key={cat.key}
+                          onClick={() => {
+                            setCategory(cat.key);
+                            setPage("products");
+                            setCategoryDropdown(false);
+                          }}
+                          style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 10, border: "1px solid #e8e8df", borderRadius: 12, background: "#fff", cursor: "pointer", textAlign: "left", overflow: "hidden" }}
+                        >
+                          <div style={{ background: cat.color, overflow: "hidden" }}>
+                            <img
+                              src={cat.image}
+                              alt={cat.label}
+                              loading="lazy"
+                              style={{ width: "100%", height: "100%", minHeight: 96, objectFit: "cover" }}
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                            />
+                          </div>
+                          <div style={{ padding: "10px 10px 10px 0" }}>
+                            <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>{cat.label}</div>
+                            <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 5 }}>{cat.desc}</div>
+                            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>{categoryCount(cat.key)} products</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </nav>
     );
   };
@@ -3911,13 +4009,25 @@ export default function App() {
               {/* Trust Badges */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {[
-                  { icon: "CHK", label: "100-point checks", text: "Every device", color: "#f0f7ff" },
-                  { icon: "RET", label: "30-day returns", text: "No questions", color: "#fef9f0" },
-                  { icon: "IMG", label: "Live photos", text: "Before dispatch", color: "#f5f9f0" },
-                  { icon: "⏱️", label: "Next-day delivery", text: "To your door", color: "#fffaf5" },
+                  {
+                    svg: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
+                    label: "100-point checks", text: "Every device", color: "#f0f7ff"
+                  },
+                  {
+                    svg: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>,
+                    label: "30-day returns", text: "No questions", color: "#fef9f0"
+                  },
+                  {
+                    svg: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+                    label: "Live photos", text: "Before dispatch", color: "#f5f9f0"
+                  },
+                  {
+                    svg: <span style={{ fontSize: 26 }}>⏱️</span>,
+                    label: "Next-day delivery", text: "To your door", color: "#fffaf5"
+                  },
                 ].map((badge, i) => (
                   <div key={badge.label} style={{ background: badge.color, borderRadius: 14, padding: "16px 12px", textAlign: "center", animation: `fadeUp .7s ${.3 + i * 0.08}s both` }}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>{badge.icon}</div>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>{badge.svg}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#3d3d3d", marginBottom: 2 }}>{badge.label}</div>
                     <div style={{ fontSize: 11, color: "#5a5a5a" }}>{badge.text}</div>
                   </div>
@@ -3960,10 +4070,18 @@ export default function App() {
                     e.currentTarget.style.boxShadow = "none";
                   }}
                 >
-                  <div style={{ fontSize: 52, marginBottom: 16, lineHeight: 1 }}>{cat.icon}</div>
-                  <div style={{ fontFamily: "'Fraunces',serif", fontWeight: 700, fontSize: 20, color: "var(--ink)", marginBottom: 8 }}>
-                    {cat.label}
+                  <div style={{ height: 180, borderRadius: 12, overflow: "hidden", marginBottom: 14, boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.05)" }}>
+                    <img
+                      src={cat.image}
+                      alt={cat.label}
+                      loading="lazy"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
                   </div>
+                  <div style={{ fontFamily: "'Fraunces',serif", fontWeight: 700, fontSize: 20, color: "var(--ink)", marginBottom: 8 }}>{cat.label}</div>
                   <div style={{ fontSize: 14, color: "var(--ink-soft)", marginBottom: 12 }}>
                     {cat.desc}
                   </div>
@@ -4107,7 +4225,7 @@ export default function App() {
                 Founded by electronics enthusiasts who saw an opportunity to bring fair pricing and quality refurbished tech to coastal Kenya. Our team brings 50+ years of combined experience in tech retail and logistics.
               </p>
               <p style={{ color: "#5a5a5a", lineHeight: 1.8, fontSize: 15 }}>
-                Available via WhatsApp, email, and in-app chat during business hours (Mon�?"Fri 8 AM�?"8 PM EAT).
+                Available via WhatsApp, email, and in-app chat during business hours (Mon–Fri 8 AM–8 PM EAT).
               </p>
             </div>
             <div style={panel}>
@@ -4620,7 +4738,9 @@ export default function App() {
                         onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.facebook.color; e.currentTarget.style.color = "#fff"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.facebook.color; }}
                       >
-                        f
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M13.5 22v-8h2.7l.4-3.1h-3.1V8.9c0-.9.3-1.5 1.6-1.5h1.7V4.6c-.3 0-1.3-.1-2.5-.1-2.5 0-4.1 1.5-4.1 4.3v2.1H8v3.1h2.6v8h2.9z"/>
+                        </svg>
                       </a>
                       <a 
                         href={shareLinks.twitter}
@@ -4631,7 +4751,10 @@ export default function App() {
                         onMouseEnter={(e) => { e.currentTarget.style.background = "#000"; e.currentTarget.style.color = "#fff"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#000"; }}
                       >
-                        �.�
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                          <path d="M4 4l16 16"/>
+                          <path d="M20 4L4 20"/>
+                        </svg>
                       </a>
                       <a 
                         href={shareLinks.linkedin}
@@ -4642,18 +4765,24 @@ export default function App() {
                         onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.linkedin.color; e.currentTarget.style.color = "#fff"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.linkedin.color; }}
                       >
-                        in
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M6.9 8.5v9H4v-9h2.9zM5.5 7.3a1.7 1.7 0 110-3.4 1.7 1.7 0 010 3.4zM20 12.4v5.1h-2.9v-4.7c0-1.1-.4-1.8-1.4-1.8-.8 0-1.2.5-1.4 1-.1.2-.1.5-.1.8v4.7h-2.9v-9h2.9v1.3c.4-.6 1.1-1.4 2.7-1.4 2 0 3.1 1.3 3.1 4z"/>
+                        </svg>
                       </a>
                       <a 
                         href={shareLinks.whatsapp}
                         target="_blank" 
                         rel="noopener noreferrer"
                         title="Share on WhatsApp"
-                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, textDecoration: "none", color: SOCIAL_PLATFORMS.whatsapp.color, fontWeight: 700, transition: "all 0.2s ease" }}
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 16, textDecoration: "none", color: SOCIAL_PLATFORMS.whatsapp.color, fontWeight: 700, transition: "all 0.2s ease" }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = SOCIAL_PLATFORMS.whatsapp.color; e.currentTarget.style.color = "#fff"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = SOCIAL_PLATFORMS.whatsapp.color; }}
                       >
-                        �Y'�
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 11.5A8.5 8.5 0 1 1 6 5.5"/>
+                          <path d="M8 19l-4 1 1-4"/>
+                          <path d="M9.5 9.5c.5-1 1.5-1 2 0 .4.8 1.3 2.3 3 3 .7.3.7 1.1 0 1.5-1 .6-2.4.3-3.8-.8-1.3-1-1.9-2.2-1.2-3.7z"/>
+                        </svg>
                       </a>
                       <button
                         onClick={() => {
@@ -4661,11 +4790,14 @@ export default function App() {
                           alert("Product link copied to clipboard!");
                         }}
                         title="Copy link"
-                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 18, color: "#666", fontWeight: 700, transition: "all 0.2s ease" }}
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 14, color: "#666", fontWeight: 700, transition: "all 0.2s ease" }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = "#666"; e.currentTarget.style.color = "#fff"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#666"; }}
                       >
-                        �Y"-
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="9" y="9" width="11" height="11" rx="2"/>
+                          <rect x="4" y="4" width="11" height="11" rx="2"/>
+                        </svg>
                       </button>
                     </>
                   );
@@ -4678,14 +4810,14 @@ export default function App() {
             <div style={panel}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h3 style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>Customer Reviews</h3>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>�~. {avgRating} ({productReviews.length})</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>Rating: {avgRating} ({productReviews.length})</div>
               </div>
               <div style={{ display: "grid", gap: 10 }}>
                 {productReviews.map((r) => (
                   <div key={r.name} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                       <strong style={{ color: "var(--ink)", fontSize: 13 }}>{r.name}</strong>
-                      <span style={{ color: "#f1b400", fontSize: 12 }}>{"�~.".repeat(r.rating)}{"�~?".repeat(5 - r.rating)}</span>
+                      <span style={{ color: "#f1b400", fontSize: 12 }}>{"*".repeat(r.rating)}{"-".repeat(5 - r.rating)}</span>
                     </div>
                     <p style={{ color: "var(--text-mid)", fontSize: 13, lineHeight: 1.6 }}>{r.text}</p>
                   </div>
@@ -4703,7 +4835,7 @@ export default function App() {
                       style={{ width: "100%", textAlign: "left", border: "none", background: "#fff", color: "var(--ink)", padding: "12px 14px", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
                     >
                       <span>{faq.q}</span>
-                      <span style={{ fontSize: 12 }}>{openProductFaq === idx ? "�^'" : "+"}</span>
+                      <span style={{ fontSize: 12 }}>{openProductFaq === idx ? "-" : "+"}</span>
                     </button>
                     {openProductFaq === idx && (
                       <div style={{ borderTop: "1px solid var(--line)", background: "#fafaf9", padding: "10px 14px", color: "var(--text-mid)", fontSize: 13, lineHeight: 1.6 }}>
@@ -4759,7 +4891,7 @@ export default function App() {
         {Nav()}
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
           <button onClick={() => setPage(selected ? "product" : "cart")} style={linkBtn}>
-            {selected ? "�?� Back to product" : "�?� Back to cart"}
+            {selected ? "< Back to product" : "< Back to cart"}
           </button>
           
           <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 900 ? "1fr" : "1fr 380px", gap: 32, marginTop: 24 }}>
@@ -4845,14 +4977,14 @@ export default function App() {
                 {appliedCoupon && (
                   <div style={{ marginTop: 12, padding: 10, background: "#f0fdf4", border: "1px solid var(--green)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>�o" {appliedCoupon.code}</div>
-                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{appliedCoupon.label} applied �?� Save KSh {fmt(checkoutDiscount)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>Applied {appliedCoupon.code}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{appliedCoupon.label} applied - Save KSh {fmt(checkoutDiscount)}</div>
                     </div>
                     <button
                       onClick={removeCoupon}
                       style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}
                     >
-                      �-
+                      x
                     </button>
                   </div>
                 )}
@@ -4902,7 +5034,12 @@ export default function App() {
                   onClick={() => setPaymentMethod("pesapal")}
                   style={{ width: "100%", border: `2px solid ${paymentMethod === "pesapal" ? "var(--green)" : "var(--line)"}`, borderRadius: 10, padding: 14, background: paymentMethod === "pesapal" ? "#f0fdf4" : "#f9f9f7", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "all 0.2s" }}
                 >
-                  <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 18 }}>�Y'�</div>
+                  <div style={{ width: 40, height: 40, background: "#1a73e8", borderRadius: 8, display: "grid", placeItems: "center", color: "white" }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="5" width="20" height="14" rx="2"/>
+                      <line x1="2" y1="10" x2="22" y2="10"/>
+                    </svg>
+                  </div>
                   <div style={{ flex: 1, textAlign: "left" }}>
                     <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Pesapal (Cards + Airtel)</div>
                     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Visa, Mastercard, Airtel Money via Pesapal</div>
@@ -4945,9 +5082,32 @@ export default function App() {
                     <div key={item.id} style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #ecece7" }}>
                       <div style={{ width: 60, height: 60, background: "#f5f5f0", borderRadius: 8, overflow: "hidden", display: "grid", placeItems: "center", fontSize: 24, flexShrink: 0 }}>
                         {item.image ? (
-                          <img loading="lazy" src={item.image} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; e.target.parentElement.textContent = "IMG"; }} />
+                          <>
+                            <img
+                              loading="lazy"
+                              src={item.image}
+                              alt={item.name}
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                                const fallback = e.currentTarget.parentElement?.querySelector("[data-img-fallback='true']");
+                                if (fallback) fallback.style.display = "grid";
+                              }}
+                            />
+                            <span data-img-fallback="true" style={{ display: "none", width: "100%", height: "100%", placeItems: "center", color: "#8a8a8a" }}>
+                              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <path d="M21 15l-5-5L5 21"/>
+                              </svg>
+                            </span>
+                          </>
                         ) : (
-                          "IMG"
+                          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8a8a8a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                            <path d="M21 15l-5-5L5 21"/>
+                          </svg>
                         )}
                       </div>
                       <div style={{ flex: 1 }}>
@@ -4995,12 +5155,21 @@ export default function App() {
               {/* Trust Badges */}
               <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
                 {[
-                  { icon: "CHK", text: "100-point checks" },
-                  { icon: "RET", text: "30-day returns" },
-                  { icon: "IMG", text: "Live photos before dispatch" },
+                  {
+                    svg: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
+                    text: "100-point checks"
+                  },
+                  {
+                    svg: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>,
+                    text: "30-day returns"
+                  },
+                  {
+                    svg: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+                    text: "Live photos before dispatch"
+                  },
                 ].map((badge) => (
                   <div key={badge.text} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-soft)" }}>
-                    <span style={{ fontSize: 16 }}>{badge.icon}</span>
+                    {badge.svg}
                     <span>{badge.text}</span>
                   </div>
                 ))}
@@ -5027,7 +5196,13 @@ export default function App() {
 
           {cart.length === 0 ? (
             <div style={{ ...panel, marginTop: 32, textAlign: "center", padding: "60px 24px" }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>CART</div>
+              <div style={{ fontSize: 64, marginBottom: 16, display: "grid", placeItems: "center" }}>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="9" cy="20" r="1"/>
+                  <circle cx="19" cy="20" r="1"/>
+                  <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L23 7H7"/>
+                </svg>
+              </div>
               <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "var(--ink)" }}>Your cart is empty</h3>
               <p style={{ color: "var(--muted)", marginBottom: 24 }}>Add some products to get started!</p>
               <button onClick={() => setPage("products")} style={solidBtn}>
@@ -5066,7 +5241,7 @@ export default function App() {
                             onClick={() => updateCartQuantity(item.id, item.quantity - 1)}
                             style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--line)", background: "#fff", cursor: "pointer", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 16 }}
                           >
-                            �^'
+                            -
                           </button>
                           <span style={{ fontSize: 14, fontWeight: 700, minWidth: 24, textAlign: "center" }}>{item.quantity}</span>
                           <button
@@ -5127,7 +5302,7 @@ export default function App() {
                 </div>
                 
                 <div style={{ marginTop: 16, background: "linear-gradient(135deg, rgba(26,122,74,.08) 0%, rgba(26,122,74,.05) 100%)", border: "1px solid rgba(26,122,74,.2)", borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 12, color: "var(--green)", fontWeight: 700, marginBottom: 8 }}>�Y'� Total Savings</div>
+                  <div style={{ fontSize: 12, color: "var(--green)", fontWeight: 700, marginBottom: 8 }}>Total Savings</div>
                   <div style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 900, color: "var(--green)" }}>
                     {fmt(cart.reduce((sum, item) => sum + (item.market - item.price) * item.quantity, 0))}
                   </div>
@@ -5190,7 +5365,18 @@ export default function App() {
 
           {compareList.length === 0 ? (
             <div style={{ ...panel, marginTop: 32, textAlign: "center", padding: "60px 24px" }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>�s-️</div>
+              <div style={{ fontSize: 64, marginBottom: 16, display: "grid", placeItems: "center" }}>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M16 3h5v5"/>
+                  <path d="M8 21H3v-5"/>
+                  <path d="M21 3l-7 7"/>
+                  <path d="M3 21l7-7"/>
+                  <path d="M8 3H3v5"/>
+                  <path d="M16 21h5v-5"/>
+                  <path d="M3 3l7 7"/>
+                  <path d="M21 21l-7-7"/>
+                </svg>
+              </div>
               <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "var(--ink)" }}>No products to compare</h3>
               <p style={{ color: "var(--muted)", marginBottom: 24 }}>Click the compare icon on products to add them here!</p>
               <button onClick={() => setPage("products")} style={solidBtn}>
@@ -5311,7 +5497,12 @@ export default function App() {
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "50px 24px" }}>
           {/* Success banner */}
           <div style={{ background: "linear-gradient(135deg,#2d5a4d 0%,#3a7060 100%)", borderRadius: 18, padding: "32px 28px", marginBottom: 20, color: "#fff", textAlign: "center" }}>
-            <div style={{ fontSize: 48, marginBottom: 10 }}>�YZ?</div>
+            <div style={{ fontSize: 48, marginBottom: 10, display: "grid", placeItems: "center" }}>
+              <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="m9 12 2 2 4-4"/>
+              </svg>
+            </div>
             <h1 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900, fontSize: 28, margin: "0 0 8px", color: "#fff" }}>Order Confirmed!</h1>
             <p style={{ opacity: 0.85, fontSize: 15, margin: "0 0 16px" }}>
               Thank you{lastOrder.customer ? `, ${lastOrder.customer.split(" ")[0]}` : ""}! Your order is being processed.
@@ -5331,11 +5522,16 @@ export default function App() {
 
           {/* Delivery estimate */}
           <div style={{ ...panel, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ fontSize: 32 }}>�Yss</div>
+            <div style={{ display: "grid", placeItems: "center" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
             <div>
               <div style={{ fontWeight: 700, color: "var(--ink)", fontSize: 15 }}>Estimated Delivery</div>
               <div style={{ color: "var(--green)", fontWeight: 800, fontSize: 16 }}>{estDateStr}</div>
-              <div style={{ ...pMuted, fontSize: 12 }}>3�?"5 business days · Mombasa delivery via Sendy / G4S</div>
+              <div style={{ ...pMuted, fontSize: 12 }}>3-5 business days · Mombasa delivery via Sendy / G4S</div>
             </div>
           </div>
 
@@ -5363,7 +5559,7 @@ export default function App() {
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontWeight: 700, color: "var(--ink)" }}>{fmt(item.price * (item.quantity || 1))}</div>
-                        {item.quantity > 1 && <div style={{ fontSize: 11, color: "var(--muted)" }}>�-{item.quantity} @ {fmt(item.price)}</div>}
+                        {item.quantity > 1 && <div style={{ fontSize: 11, color: "var(--muted)" }}>x{item.quantity} @ {fmt(item.price)}</div>}
                       </div>
                     </div>
                   ))
@@ -5378,7 +5574,7 @@ export default function App() {
             {lastOrder.discount > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)", color: "#16a34a", fontWeight: 600 }}>
                 <span>Discount{lastOrder.couponCode ? ` (${lastOrder.couponCode})` : ""}</span>
-                <span>�?"{fmt(lastOrder.discount)}</span>
+                <span>-{fmt(lastOrder.discount)}</span>
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 10, borderTop: "2px solid var(--line)", fontWeight: 800, fontSize: 16, color: "var(--ink)" }}>
@@ -5391,14 +5587,14 @@ export default function App() {
           <div style={{ ...panel, marginBottom: 16 }}>
             <h3 style={{ ...h3, marginBottom: 12 }}>What happens next</h3>
             <ol style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 8, color: "var(--text-mid)", fontSize: 14 }}>
-              <li><strong style={{ color: "var(--ink)" }}>Sourcing (Day 1�?"2):</strong> We source your exact device from our Nairobi suppliers.</li>
-              <li><strong style={{ color: "var(--ink)" }}>Live Photos (Day 2�?"3):</strong> We send you photos of the actual unit for approval.</li>
-              <li><strong style={{ color: "var(--ink)" }}>Dispatch (Day 3�?"4):</strong> Approved device is shipped via Sendy Express / G4S.</li>
-              <li><strong style={{ color: "var(--ink)" }}>Delivery (Day 4�?"5):</strong> Delivered to your Mombasa address with receipt.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Sourcing (Day 1-2):</strong> We source your exact device from our Nairobi suppliers.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Live Photos (Day 2-3):</strong> We send you photos of the actual unit for approval.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Dispatch (Day 3-4):</strong> Approved device is shipped via Sendy Express / G4S.</li>
+              <li><strong style={{ color: "var(--ink)" }}>Delivery (Day 4-5):</strong> Delivered to your Mombasa address with receipt.</li>
             </ol>
             {lastOrder.customerEmail && (
               <p style={{ ...pMuted, marginTop: 12, fontSize: 12 }}>
-                �Y"� Confirmation sent to <strong>{lastOrder.customerEmail}</strong>
+                Email sent to <strong>{lastOrder.customerEmail}</strong>
               </p>
             )}
           </div>
@@ -5423,13 +5619,55 @@ export default function App() {
         {Nav()}
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "44px 24px" }}>
           <h1 style={{ ...h2, marginBottom: 8 }}>Admin Catalog</h1>
-          {!currentUser?.isAdmin ? (
+          {!activeUser?.isAdmin ? (
             <div style={{ ...panel, marginTop: 16 }}>
-              <p style={{ ...pMuted, marginBottom: 12 }}>{!currentUser ? "Sign in with an admin account to manage products." : "Access denied. Admin privileges required."}</p>
-              {!currentUser && <button onClick={() => openAuth("signin")} style={solidBtn}>Sign in</button>}
+              <p style={{ ...pMuted, marginBottom: 12 }}>{!activeUser ? "Sign in with an admin account to manage products." : "Access denied. Admin privileges required."}</p>
+              {!activeUser && <button onClick={() => openAuth("signin")} style={solidBtn}>Sign in</button>}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "380px 1fr", gap: 18, marginTop: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 1120 ? "1fr" : "220px 1fr", gap: 14, marginTop: 14 }}>
+              <aside
+                style={{
+                  ...panel,
+                  alignSelf: "start",
+                  background: "linear-gradient(180deg, #0f172a 0%, #1e293b 100%)",
+                  color: "#e2e8f0",
+                  border: "1px solid #334155",
+                }}
+              >
+                <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: "#94a3b8", marginBottom: 6 }}>Admin Console</div>
+                <h3 style={{ fontSize: 18, marginBottom: 4, color: "#f8fafc", fontWeight: 800 }}>Nafuu Panel</h3>
+                <p style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 12 }}>Manage catalog, operations, and growth from one place.</p>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {["catalog", "bulk", "analytics", "seo", "blog"].map((workspaceKey) => {
+                    const active = adminWorkspace === workspaceKey;
+                    return (
+                      <button
+                        key={workspaceKey}
+                        onClick={() => {
+                          setAdminWorkspace(workspaceKey);
+                          if (workspaceKey === "analytics") calculateAdminStats();
+                        }}
+                        style={{
+                          border: active ? "1px solid #38bdf8" : "1px solid #334155",
+                          background: active ? "rgba(56, 189, 248, 0.18)" : "rgba(15, 23, 42, 0.45)",
+                          color: active ? "#e0f2fe" : "#cbd5e1",
+                          borderRadius: 10,
+                          padding: "9px 10px",
+                          textAlign: "left",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {adminWorkspaceLabels[workspaceKey]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </aside>
+
+              <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 980 ? "1fr" : "380px 1fr", gap: 18 }}>
               <aside style={panel}>
                 <h3 style={{ fontSize: 16, marginBottom: 12, color: "var(--ink)", fontWeight: 700 }}>{adminEditId ? "Edit product" : "Add product"}</h3>
                 <div style={{ display: "grid", gap: 8 }}>
@@ -5458,7 +5696,7 @@ export default function App() {
                         style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
                       />
                       <button type="button" style={{ width: "100%", border: "1px dashed var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fafaf9", color: "var(--text-mid)", fontSize: 13, cursor: "pointer" }}>
-                        �Y"� Upload Main Image
+                        Upload Main Image
                       </button>
                     </div>
                     {adminForm.image && (
@@ -5484,7 +5722,7 @@ export default function App() {
                         style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
                       />
                       <button type="button" style={{ width: "100%", border: "1px dashed var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fafaf9", color: "var(--text-mid)", fontSize: 13, cursor: "pointer" }}>
-                        �Y"� Upload Additional Images ({adminForm.images.length})
+                        Upload Additional Images ({adminForm.images.length})
                       </button>
                     </div>
                     {adminForm.images.length > 0 && (
@@ -5492,7 +5730,7 @@ export default function App() {
                         {adminForm.images.map((img, idx) => (
                           <div key={idx} style={{ position: "relative" }}>
                             <img src={img} alt={`Additional ${idx + 1}`} style={{ width: "100%", height: 70, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
-                            <button onClick={() => removeAdditionalImage(idx)} style={{ position: "absolute", top: 2, right: 2, background: "#fff", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>�-</button>
+                            <button onClick={() => removeAdditionalImage(idx)} style={{ position: "absolute", top: 2, right: 2, background: "#fff", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>x</button>
                           </div>
                         ))}
                       </div>
@@ -5521,52 +5759,38 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
                   <h3 style={{ fontSize: 16, marginBottom: 0, color: "var(--ink)", fontWeight: 700 }}>Products ({catalog.length})</h3>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      onClick={() => { setShowBulkUpload((v) => !v); setBulkResult(null); setBulkPreview(null); setAdminMsg(""); }}
-                      style={{ background: showBulkUpload ? "#059669" : "#0ea5e9", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      �Y"� {showBulkUpload ? "Hide Bulk Upload" : "Bulk Upload"}
-                    </button>
-                    <button
-                      onClick={() => calculateAdminStats()}
-                      style={{ background: "var(--ink)", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      �Y"S Analytics
-                    </button>
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 999, padding: "6px 10px", fontSize: 12, color: "var(--text-mid)", background: "#fff" }}>
+                      Workspace: <strong style={{ color: "var(--ink)" }}>{adminWorkspaceLabels[adminWorkspace]}</strong>
+                    </div>
                     <button
                       onClick={() => {
-                        setShowSeoPanel((prev) => {
-                          const next = !prev;
-                          if (!prev) void loadSeoAdminData();
-                          return next;
-                        });
+                        if (adminWorkspace === "analytics") calculateAdminStats();
+                        if (adminWorkspace === "seo") void loadSeoAdminData();
+                        if (adminWorkspace === "blog") void loadAdminBlogArticles();
                       }}
-                      style={{ background: showSeoPanel ? "#065f46" : "#0f766e", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                      style={{ ...outlineBtn, padding: "8px 12px", fontSize: 12 }}
                     >
-                      {showSeoPanel ? "Hide SEO Ops" : "SEO Ops"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowBlogAdminPanel((prev) => {
-                          const next = !prev;
-                          if (!prev) void loadAdminBlogArticles();
-                          return next;
-                        });
-                      }}
-                      style={{ background: showBlogAdminPanel ? "#1d4ed8" : "#2563eb", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      {showBlogAdminPanel ? "Hide Blog Admin" : "Blog Admin"}
+                      Refresh View
                     </button>
                   </div>
                 </div>
 
+                <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+                  {adminQuickStats.map((stat) => (
+                    <div key={stat.label} style={{ border: `1px solid ${stat.border}`, borderRadius: 10, background: stat.bg, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 11, color: "var(--text-mid)", marginBottom: 4 }}>{stat.label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: stat.tone }}>{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+
                 {/* Bulk upload panel */}
-                {showBulkUpload && (
+                {adminWorkspace === "bulk" && (
                   <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, padding: 16, marginBottom: 16 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <h4 style={{ fontSize: 14, fontWeight: 700, color: "#14532d", margin: 0 }}>Bulk Upload from Excel / CSV</h4>
                       <button onClick={downloadBulkTemplate} style={{ background: "none", border: "1px solid #16a34a", borderRadius: 7, padding: "5px 10px", fontSize: 12, color: "#16a34a", cursor: "pointer", fontWeight: 600 }}>
-                        �? Download Template
+                        Download Template
                       </button>
                     </div>
 
@@ -5599,7 +5823,7 @@ export default function App() {
                           style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer", top: 0, left: 0 }}
                         />
                         <div style={{ border: "2px dashed #60a5fa", borderRadius: 8, padding: "12px 10px", textAlign: "center", background: "white", color: "#1e40af", fontSize: 12, cursor: "pointer" }}>
-                          �Y-�️ Upload Images<br /><span style={{ fontSize: 11, color: "#2563eb" }}>{Object.keys(bulkImages).length > 0 ? `${Object.keys(bulkImages).length} images ready` : "Click to add"}</span>
+                          📂 Upload Images<br /><span style={{ fontSize: 11, color: "#2563eb" }}>{Object.keys(bulkImages).length > 0 ? `${Object.keys(bulkImages).length} images ready` : "Click to add"}</span>
                         </div>
                       </div>
                     </div>
@@ -5628,7 +5852,7 @@ export default function App() {
                               {Object.keys(bulkPreview.rows[0]).slice(0, 7).map((col) => (
                                 <th key={col} style={{ padding: "6px 8px", textAlign: "left", color: "#14532d", fontWeight: 700, borderBottom: "1px solid #bbf7d0", whiteSpace: "nowrap" }}>{col}</th>
                               ))}
-                              {Object.keys(bulkPreview.rows[0]).length > 7 && <th style={{ padding: "6px 8px", color: "#14532d", borderBottom: "1px solid #bbf7d0" }}>�?�</th>}
+                              {Object.keys(bulkPreview.rows[0]).length > 7 && <th style={{ padding: "6px 8px", color: "#14532d", borderBottom: "1px solid #bbf7d0" }}>...</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -5637,7 +5861,7 @@ export default function App() {
                                 {Object.values(row).slice(0, 7).map((val, j) => (
                                   <td key={j} style={{ padding: "5px 8px", color: "#166534", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(val)}</td>
                                 ))}
-                                {Object.keys(row).length > 7 && <td style={{ padding: "5px 8px", color: "#4ade80" }}>�?�</td>}
+                                {Object.keys(row).length > 7 && <td style={{ padding: "5px 8px", color: "#4ade80" }}>...</td>}
                               </tr>
                             ))}
                           </tbody>
@@ -5649,14 +5873,14 @@ export default function App() {
                     {/* Result summary */}
                     {bulkResult && (
                       <div style={{ background: "white", border: "1px solid #86efac", borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12 }}>
-                        <div style={{ fontWeight: 700, color: "#14532d", marginBottom: 4 }}>�o. Upload complete �?" {bulkResult.total} rows processed</div>
-                        <div style={{ color: "#166534" }}>�z. Inserted: <strong>{bulkResult.inserted}</strong> · �Y"" Updated: <strong>{bulkResult.updated}</strong>{bulkResult.failed.length > 0 ? ` · �O Failed: ${bulkResult.failed.length}` : ""}</div>
+                        <div style={{ fontWeight: 700, color: "#14532d", marginBottom: 4 }}>Upload complete - {bulkResult.total} rows processed</div>
+                        <div style={{ color: "#166534" }}>Inserted: <strong>{bulkResult.inserted}</strong> · Updated: <strong>{bulkResult.updated}</strong>{bulkResult.failed.length > 0 ? ` · Failed: ${bulkResult.failed.length}` : ""}</div>
                         {bulkResult.failed.length > 0 && (
                           <div style={{ marginTop: 6 }}>
                             {bulkResult.failed.slice(0, 5).map((f) => (
                               <div key={f.row} style={{ fontSize: 11, color: "#b91c1c" }}>Row {f.row}: {f.reason}</div>
                             ))}
-                            {bulkResult.failed.length > 5 && <div style={{ fontSize: 11, color: "#b91c1c" }}>�?�and {bulkResult.failed.length - 5} more</div>}
+                            {bulkResult.failed.length > 5 && <div style={{ fontSize: 11, color: "#b91c1c" }}>...and {bulkResult.failed.length - 5} more</div>}
                           </div>
                         )}
                       </div>
@@ -5668,11 +5892,11 @@ export default function App() {
                         disabled={!bulkPreview || bulkUploading}
                         style={{ background: !bulkPreview || bulkUploading ? "#bbf7d0" : "#16a34a", color: "white", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: !bulkPreview || bulkUploading ? "not-allowed" : "pointer" }}
                       >
-                        {bulkUploading ? "Uploading�?�" : `Upload ${bulkPreview ? bulkPreview.rows.length + " products" : ""}`}
+                        {bulkUploading ? "Uploading..." : `Upload ${bulkPreview ? bulkPreview.rows.length + " products" : ""}`}
                       </button>
                       {(bulkPreview || Object.keys(bulkImages).length > 0) && (
                         <button onClick={() => { setBulkPreview(null); setBulkResult(null); setBulkImages({}); }} style={{ background: "none", border: "1px solid #86efac", borderRadius: 8, padding: "9px 14px", fontSize: 13, color: "#166534", cursor: "pointer" }}>
-                          �Y-'️ Clear All
+                          Clear All
                         </button>
                       )}
                     </div>
@@ -5680,7 +5904,7 @@ export default function App() {
                 )}
                 
                 {/* Analytics Display */}
-                {adminStats && (
+                {adminWorkspace === "analytics" && adminStats && (
                   <div style={{ background: "#f0f9ff", border: "1px solid #0284c7", borderRadius: 10, padding: 14, marginBottom: 14 }}>
                     <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0c4a6e", marginBottom: 10 }}>Business Analytics</h4>
                     <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 640 ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -5719,7 +5943,14 @@ export default function App() {
                   </div>
                 )}
 
-                {showSeoPanel && (
+                {adminWorkspace === "analytics" && !adminStats && (
+                  <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ fontSize: 12, color: "#0c4a6e" }}>No analytics snapshot yet. Run it for latest revenue, order, and stock insights.</div>
+                    <button onClick={() => calculateAdminStats()} style={{ ...solidBtn, padding: "7px 12px", fontSize: 12 }}>Run Analytics</button>
+                  </div>
+                )}
+
+                {adminWorkspace === "seo" && (
                   <div style={{ background: "#f0fdfa", border: "1px solid #0d9488", borderRadius: 10, padding: 14, marginBottom: 14, display: "grid", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <h4 style={{ fontSize: 14, fontWeight: 700, color: "#134e4a", margin: 0 }}>SEO Stats and Follow-up</h4>
@@ -5936,7 +6167,7 @@ export default function App() {
                   </div>
                 )}
 
-                {showBlogAdminPanel && (
+                {adminWorkspace === "blog" && (
                   <div style={{ background: "#eff6ff", border: "1px solid #60a5fa", borderRadius: 10, padding: 14, marginBottom: 14, display: "grid", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <h4 style={{ fontSize: 14, fontWeight: 700, color: "#1e3a8a", margin: 0 }}>Blog Admin</h4>
@@ -6213,33 +6444,36 @@ export default function App() {
                   </div>
                 )}
                 
-                <div style={{ display: "grid", gap: 8 }}>
-                  {catalog.map((p) => {
-                    const stockMeta = getStockMeta(p.stockStatus);
-                    return (
-                      <div key={p.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                          <div>
-                            <div style={{ fontWeight: 700, color: "var(--ink)" }}>{p.brand} {p.name}</div>
-                            <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.spec}</div>
+                {adminWorkspace === "catalog" && (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {catalog.map((p) => {
+                      const stockMeta = getStockMeta(p.stockStatus);
+                      return (
+                        <div key={p.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontWeight: 700, color: "var(--ink)" }}>{p.brand} {p.name}</div>
+                              <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.spec}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
+                              <span style={{ border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 8px", background: "#f9fafb", color: "var(--text-mid)", fontSize: 11, fontWeight: 700 }}>Qty: {p.stockQuantity ?? 10}</span>
+                              <span style={{ border: `1px solid ${stockMeta.border}`, borderRadius: 999, padding: "3px 8px", background: stockMeta.bg, color: stockMeta.color, fontSize: 11, fontWeight: 700 }}>{stockMeta.label}</span>
+                            </div>
                           </div>
-                          <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
-                            <span style={{ border: "1px solid #e5e7eb", borderRadius: 999, padding: "3px 8px", background: "#f9fafb", color: "var(--text-mid)", fontSize: 11, fontWeight: 700 }}>Qty: {p.stockQuantity ?? 10}</span>
-                            <span style={{ border: `1px solid ${stockMeta.border}`, borderRadius: 999, padding: "3px 8px", background: stockMeta.bg, color: stockMeta.color, fontSize: 11, fontWeight: 700 }}>{stockMeta.label}</span>
+                          <div style={{ fontSize: 12, color: "var(--text-mid)" }}>Nafuu: {fmt(p.price)} · Market: {fmt(p.market)} · {p.category}</div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <button onClick={() => startEditProduct(p)} style={outlineBtn}>Edit</button>
+                            <button onClick={() => setProductStockStatus(p.id, "in_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>In stock</button>
+                            <button onClick={() => setProductStockStatus(p.id, "low_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Low</button>
+                            <button onClick={() => setProductStockStatus(p.id, "out_of_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Out</button>
                           </div>
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--text-mid)" }}>Nafuu: {fmt(p.price)} · Market: {fmt(p.market)} · {p.category}</div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <button onClick={() => startEditProduct(p)} style={outlineBtn}>Edit</button>
-                          <button onClick={() => setProductStockStatus(p.id, "in_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>In stock</button>
-                          <button onClick={() => setProductStockStatus(p.id, "low_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Low</button>
-                          <button onClick={() => setProductStockStatus(p.id, "out_of_stock")} style={{ ...outlineBtn, padding: "6px 10px", fontSize: 12 }}>Out</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
+            </div>
             </div>
           )}
         </div>
@@ -6404,7 +6638,7 @@ export default function App() {
                       (profileData.cards || []).map((card) => (
                         <div key={card.id} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                           <div>
-                            <div style={{ fontWeight: 700, color: "var(--ink)" }}>{card.brand} �?��?��?��?� {card.last4}</div>
+                            <div style={{ fontWeight: 700, color: "var(--ink)" }}>{card.brand} •••• {card.last4}</div>
                             <div style={{ fontSize: 12, color: "var(--muted)" }}>{card.holder} · Exp {card.expMonth}/{card.expYear}</div>
                           </div>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -7261,7 +7495,14 @@ function ProductCard({
           style={{ border: `2px solid ${inComparison ? "var(--green)" : "var(--line)"}`, background: inComparison ? "#f0fdf4" : "white", color: inComparison ? "var(--green)" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
           title={inComparison ? "Remove from comparison" : "Add to comparison"}
         >
-          �s-️ Compare
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="16 3 21 3 21 8" />
+              <line x1="4" y1="20" x2="21" y2="3" />
+              <polyline points="8 21 3 21 3 16" />
+            </svg>
+            Compare
+          </span>
         </button>
         <button
           onClick={(e) => {
@@ -7271,7 +7512,13 @@ function ProductCard({
           style={{ border: `2px solid ${hasAlert ? "#f59e0b" : "var(--line)"}`, background: hasAlert ? "#fffbeb" : "white", color: hasAlert ? "#f59e0b" : "var(--ink)", borderRadius: 8, padding: "8px 12px", fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "all .2s ease" }}
           title={hasAlert ? "Remove stock alert" : "Notify when in stock"}
         >
-          �Y"" Alert
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+              <path d="M10 21a2 2 0 0 0 4 0" />
+            </svg>
+            Alert
+          </span>
         </button>
       </div>
       

@@ -3,6 +3,8 @@
  * Clerk handles all user management, password resets, social sign-in, and session persistence.
  */
 
+import { hasAdminAccess } from "../shared/adminAccess";
+
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 /**
@@ -22,8 +24,7 @@ const normalizeUser = (clerkUser) => {
   if (!clerkUser) return null;
 
   const email = clerkUser.primaryEmailAddress?.emailAddress || clerkUser.emailAddresses?.[0]?.emailAddress || "";
-  const adminEmails = ["admin@nafuumart.com", "admin@nafuumart.co.ke"];
-  const isAdmin = adminEmails.includes(email.toLowerCase());
+  const isAdmin = hasAdminAccess({ email });
 
   return {
     name:
