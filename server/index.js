@@ -3,7 +3,7 @@ import cors from "cors";
 import express from "express";
 import { buildPreflightReport } from "./lib/preflightChecks.js";
 import { getNeonSql } from "./lib/neonClient.js";
-import { getProducts, updateProductStock, upsertProduct, bulkUpsertProducts } from "./routes/products.js";
+import { getProducts, updateProductStock, upsertProduct, bulkUpsertProducts, syncProductsFromFeed } from "./routes/products.js";
 import { createOrder, getMyOrders } from "./routes/orders.js";
 import { getMyProfile, upsertMyProfile } from "./routes/profile.js";
 import { getMyWishlist, upsertMyWishlist } from "./routes/wishlist.js";
@@ -228,6 +228,10 @@ app.patch("/api/admin/products/:productId/stock", (req, res) => {
 
 app.post("/api/admin/products/bulk", (req, res) => {
   void sendHandlerResult(res, bulkUpsertProducts({ headers: req.headers, body: req.body }));
+});
+
+app.post("/api/admin/products/sync", (req, res) => {
+  void sendHandlerResult(res, syncProductsFromFeed({ headers: req.headers, body: req.body }));
 });
 
 app.post("/api/orders", (req, res) => {

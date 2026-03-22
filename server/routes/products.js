@@ -345,3 +345,259 @@ export const bulkUpsertProducts = async ({ headers = {}, body = {} } = {}) => {
     body: { ok: true, inserted, updated, failed, total: products.length },
   };
 };
+
+const MAX_SYNC_ITEMS = 2000;
+
+const slugify = (value = "") =>
+  String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50);
+
+const makeStableId = (raw = {}, index = 0, idPrefix = "sync") => {
+  const brand = slugify(raw.brand || raw.Brand || "item");
+  const name = slugify(raw.name || raw.Name || "product");
+  const spec = slugify(raw.spec || raw.Spec || "");
+  const basis = `${brand}-${name}-${spec}-${index + 1}`;
+  return `${idPrefix}-${basis}`.slice(0, 90);
+};
+
+const pickPath = (obj, path) => {
+  if (!path) return undefined;
+  return String(path)
+    .split(".")
+    .filter(Boolean)
+    .reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+};
+
+const parseCsvLine = (line = "") => {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  result.push(current.trim());
+  return result;
+};
+
+const parseCsv = (csvText = "") => {
+  const lines = String(csvText)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] ?? "";
+    });
+    return row;
+  });
+};
+
+const coerceFeedItems = ({ data, format, productsPath }) => {
+  if (format === "csv") {
+    return parseCsv(typeof data === "string" ? data : String(data || ""));
+  }
+
+  let parsed;
+  if (typeof data === "string") {
+    parsed = JSON.parse(data);
+  } else {
+    parsed = data;
+  }
+
+  if (Array.isArray(parsed)) return parsed;
+
+  const fromPath = pickPath(parsed, productsPath);
+  if (Array.isArray(fromPath)) return fromPath;
+
+  if (Array.isArray(parsed?.items)) return parsed.items;
+  if (Array.isArray(parsed?.products)) return parsed.products;
+  if (Array.isArray(parsed?.data)) return parsed.data;
+
+  return [];
+};
+
+export const syncProductsFromFeed = async ({ headers = {}, body = {} } = {}) => {
+  const auth = await requireAdminRequest(headers);
+  if (!auth.ok) {
+    return { status: auth.status, body: { ok: false, message: auth.error } };
+  }
+
+  const sourceUrl = String(body.sourceUrl || "").trim();
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) {
+    return { status: 400, body: { ok: false, message: "sourceUrl (http/https) is required" } };
+  }
+
+  const format = String(body.format || "auto").toLowerCase();
+  const productsPath = String(body.productsPath || "").trim();
+  const idPrefix = slugify(body.idPrefix || "feed") || "feed";
+  const dryRun = Boolean(body.dryRun);
+  const maxItemsInput = Number(body.maxItems || 1000);
+  const maxItems = Number.isFinite(maxItemsInput)
+    ? Math.min(Math.max(maxItemsInput, 1), MAX_SYNC_ITEMS)
+    : 1000;
+
+  let response;
+  try {
+    response = await fetch(sourceUrl, {
+      headers: { Accept: "application/json,text/csv,text/plain,*/*" },
+    });
+  } catch (error) {
+    return {
+      status: 502,
+      body: { ok: false, message: `Failed to fetch sourceUrl: ${error?.message || "network error"}` },
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      status: 502,
+      body: { ok: false, message: `Source feed returned HTTP ${response.status}` },
+    };
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const raw = await response.text();
+
+  const inferredFormat =
+    format !== "auto"
+      ? format
+      : contentType.includes("csv")
+        ? "csv"
+        : "json";
+
+  let items;
+  try {
+    items = coerceFeedItems({ data: raw, format: inferredFormat, productsPath });
+  } catch (error) {
+    return {
+      status: 400,
+      body: { ok: false, message: `Unable to parse source feed: ${error?.message || "invalid payload"}` },
+    };
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return {
+      status: 400,
+      body: { ok: false, message: "No product records found in source feed" },
+    };
+  }
+
+  const trimmed = items.slice(0, maxItems);
+  const normalized = trimmed.map((row, idx) => {
+    const withId = { ...row, id: row?.id || row?.ID || makeStableId(row, idx, idPrefix) };
+    const payload = normalizeExcelRow(withId);
+    if (!payload.category) payload.category = "sparepart";
+    if (!payload.grade) payload.grade = "New";
+    if (!payload.stockStatus) payload.stockStatus = "in_stock";
+    return payload;
+  });
+
+  const failed = [];
+  const valid = [];
+
+  normalized.forEach((payload, idx) => {
+    if (!payload.brand || !payload.name || !payload.spec) {
+      failed.push({ row: idx + 1, reason: "Missing required fields: brand, name, spec" });
+      return;
+    }
+    if (!Number.isFinite(payload.price) || payload.price <= 0) {
+      failed.push({ row: idx + 1, reason: "Invalid or missing price" });
+      return;
+    }
+    if (!Number.isFinite(payload.market) || payload.market <= 0) {
+      failed.push({ row: idx + 1, reason: "Invalid or missing market price" });
+      return;
+    }
+    valid.push(payload);
+  });
+
+  if (dryRun) {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        dryRun: true,
+        sourceCount: items.length,
+        processed: trimmed.length,
+        valid: valid.length,
+        failed,
+      },
+    };
+  }
+
+  const sql = getNeonSql();
+  let inserted = 0;
+  let updated = 0;
+
+  for (let i = 0; i < valid.length; i++) {
+    const payload = valid[i];
+    try {
+      const rows = await sql`
+        INSERT INTO products (
+          id, brand, name, spec, category, grade, price, market_price,
+          image_url, images, description, long_description,
+          in_stock, stock_status, stock_quantity, tags, updated_at
+        ) VALUES (
+          ${payload.id}, ${payload.brand}, ${payload.name}, ${payload.spec},
+          ${payload.category}, ${payload.grade}, ${payload.price}, ${payload.market},
+          ${payload.image}, ${JSON.stringify(payload.images)},
+          ${payload.description}, ${payload.longDescription},
+          ${payload.stockStatus !== "out_of_stock"}, ${payload.stockStatus},
+          ${payload.stockQuantity}, ${JSON.stringify(payload.tags)}, NOW()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          brand = EXCLUDED.brand, name = EXCLUDED.name, spec = EXCLUDED.spec,
+          category = EXCLUDED.category, grade = EXCLUDED.grade,
+          price = EXCLUDED.price, market_price = EXCLUDED.market_price,
+          image_url = EXCLUDED.image_url, images = EXCLUDED.images,
+          description = EXCLUDED.description, long_description = EXCLUDED.long_description,
+          in_stock = EXCLUDED.in_stock, stock_status = EXCLUDED.stock_status,
+          stock_quantity = EXCLUDED.stock_quantity, tags = EXCLUDED.tags,
+          updated_at = NOW()
+        RETURNING (xmax = 0) AS was_inserted
+      `;
+
+      if (rows[0]?.was_inserted) inserted++;
+      else updated++;
+    } catch (error) {
+      failed.push({ row: i + 1, reason: error?.message || "DB error" });
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      sourceCount: items.length,
+      processed: trimmed.length,
+      inserted,
+      updated,
+      failed,
+      total: valid.length,
+    },
+  };
+};

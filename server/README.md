@@ -36,6 +36,7 @@ This folder contains the backend foundation for the Neon + Clerk migration.
 - `GET /api/products`
 - `POST /api/admin/products`
 - `PATCH /api/admin/products/:productId/stock`
+- `POST /api/admin/products/sync`
 - `POST /api/orders`
 - `GET /api/orders/me`
 - `GET /api/tracking/:reference`
@@ -44,6 +45,27 @@ This folder contains the backend foundation for the Neon + Clerk migration.
 - `POST /api/payments/pesapal/callback`
 
 Admin endpoints require a valid Clerk bearer token with admin metadata/role. Frontend admin requests now attach Clerk session bearer tokens and keep local fallback behavior when backend/auth is unavailable.
+
+### Product Feed Sync
+Use `POST /api/admin/products/sync` to import products from a remote feed URL.
+
+Example request body:
+
+```json
+{
+	"sourceUrl": "https://example.com/products.json",
+	"format": "auto",
+	"productsPath": "items",
+	"maxItems": 1000,
+	"idPrefix": "feed",
+	"dryRun": false
+}
+```
+
+Notes:
+- Supports JSON feeds (array, `items`, `products`, `data`, or custom `productsPath`) and CSV feeds.
+- Set `dryRun` to `true` to validate and preview before DB writes.
+- Admin authentication is required.
 
 Use `GET /api/health/ready` to verify backend env readiness. It returns `503` until required backend values are configured.
 
