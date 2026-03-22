@@ -389,6 +389,15 @@ export default function App() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState(null); // { inserted, updated, failed }
   const [bulkImages, setBulkImages] = useState({}); // { filename: base64_string }
+  const [feedSyncForm, setFeedSyncForm] = useState({
+    sourceUrl: "",
+    format: "auto",
+    productsPath: "",
+    maxItems: "1000",
+    idPrefix: "feed",
+  });
+  const [feedSyncPending, setFeedSyncPending] = useState(false);
+  const [feedSyncResult, setFeedSyncResult] = useState(null);
   const [adminForm, setAdminForm] = useState({
     brand: "",
     name: "",
@@ -2655,6 +2664,69 @@ export default function App() {
       setAdminMsg(`Bulk upload error: ${err.message}`);
     } finally {
       setBulkUploading(false);
+    }
+  };
+
+  const submitFeedSync = async (dryRun = false) => {
+    const sourceUrl = String(feedSyncForm.sourceUrl || "").trim();
+    if (!sourceUrl) {
+      setAdminMsg("Feed URL is required for sync.");
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(sourceUrl)) {
+      setAdminMsg("Feed URL must start with http:// or https://");
+      return;
+    }
+
+    setFeedSyncPending(true);
+    setFeedSyncResult(null);
+    setAdminMsg("");
+    try {
+      const token = await getClerkToken();
+      const payload = {
+        sourceUrl,
+        format: feedSyncForm.format || "auto",
+        productsPath: String(feedSyncForm.productsPath || "").trim(),
+        maxItems: Number(feedSyncForm.maxItems || 1000),
+        idPrefix: String(feedSyncForm.idPrefix || "feed").trim() || "feed",
+        dryRun,
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/products/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok === false) {
+        setAdminMsg(`Feed sync failed: ${data?.message || "Unknown error"}`);
+        return;
+      }
+
+      setFeedSyncResult(data);
+
+      if (!dryRun) {
+        try {
+          const pRes = await fetch(`${API_BASE_URL}/api/products`);
+          const pData = await pRes.json().catch(() => ({}));
+          if (pData.ok && Array.isArray(pData.items)) {
+            setCatalog(pData.items);
+            await saveCatalog(pData.items);
+          }
+        } catch {
+          // best effort refresh
+        }
+      }
+    } catch (err) {
+      setAdminMsg(`Feed sync error: ${err?.message || "Unknown error"}`);
+    } finally {
+      setFeedSyncPending(false);
     }
   };
 
@@ -5854,6 +5926,69 @@ export default function App() {
                     <p style={{ fontSize: 12, color: "#166534", marginBottom: 10, lineHeight: 1.5 }}>
                       Required columns: <strong>brand, name, spec, price, market</strong>. Optional: id, category, grade, image, description, stock_status, stock_quantity, tags. Reference images by filename in the Excel.
                     </p>
+
+                    <div style={{ background: "white", border: "1px solid #bbf7d0", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#14532d", marginBottom: 8 }}>Remote Feed Sync (JSON/CSV URL)</div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "2fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <input
+                          value={feedSyncForm.sourceUrl}
+                          onChange={(e) => setFeedSyncForm((prev) => ({ ...prev, sourceUrl: e.target.value }))}
+                          placeholder="https://example.com/products.json"
+                          style={{ border: "1px solid #86efac", borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
+                        />
+                        <select
+                          value={feedSyncForm.format}
+                          onChange={(e) => setFeedSyncForm((prev) => ({ ...prev, format: e.target.value }))}
+                          style={{ border: "1px solid #86efac", borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
+                        >
+                          <option value="auto">Format: Auto</option>
+                          <option value="json">Format: JSON</option>
+                          <option value="csv">Format: CSV</option>
+                        </select>
+                        <input
+                          value={feedSyncForm.productsPath}
+                          onChange={(e) => setFeedSyncForm((prev) => ({ ...prev, productsPath: e.target.value }))}
+                          placeholder="productsPath (optional)"
+                          style={{ border: "1px solid #86efac", borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
+                        />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: viewportWidth < 760 ? "1fr" : "1fr 1fr auto auto", gap: 8, alignItems: "center" }}>
+                        <input
+                          value={feedSyncForm.maxItems}
+                          onChange={(e) => setFeedSyncForm((prev) => ({ ...prev, maxItems: e.target.value }))}
+                          placeholder="Max items (1-2000)"
+                          style={{ border: "1px solid #86efac", borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
+                        />
+                        <input
+                          value={feedSyncForm.idPrefix}
+                          onChange={(e) => setFeedSyncForm((prev) => ({ ...prev, idPrefix: e.target.value }))}
+                          placeholder="ID prefix"
+                          style={{ border: "1px solid #86efac", borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
+                        />
+                        <button
+                          onClick={() => submitFeedSync(true)}
+                          disabled={feedSyncPending}
+                          style={{ background: "none", border: "1px solid #16a34a", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#166534", cursor: feedSyncPending ? "not-allowed" : "pointer" }}
+                        >
+                          {feedSyncPending ? "Working..." : "Validate Feed"}
+                        </button>
+                        <button
+                          onClick={() => submitFeedSync(false)}
+                          disabled={feedSyncPending}
+                          style={{ background: "#16a34a", border: "1px solid #16a34a", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "white", cursor: feedSyncPending ? "not-allowed" : "pointer", fontWeight: 700 }}
+                        >
+                          {feedSyncPending ? "Syncing..." : "Sync Products"}
+                        </button>
+                      </div>
+                      {feedSyncResult && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#166534" }}>
+                          Source: <strong>{feedSyncResult.sourceCount ?? 0}</strong> · Processed: <strong>{feedSyncResult.processed ?? 0}</strong>
+                          {feedSyncResult.dryRun
+                            ? <> · Valid: <strong>{feedSyncResult.valid ?? 0}</strong> · Failed: <strong>{feedSyncResult.failed?.length || 0}</strong></>
+                            : <> · Inserted: <strong>{feedSyncResult.inserted ?? 0}</strong> · Updated: <strong>{feedSyncResult.updated ?? 0}</strong> · Failed: <strong>{feedSyncResult.failed?.length || 0}</strong></>}
+                        </div>
+                      )}
+                    </div>
 
                     {/* File upload area - two columns: Excel and Images */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
