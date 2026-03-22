@@ -898,6 +898,20 @@ export default function App() {
       const loadCatalog = async () => {
         const fallbackProducts = PRODUCTS.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" }));
 
+        const mergeWithFallback = (incomingItems = []) => {
+          const mergedById = new Map(fallbackProducts.map((p) => [p.id, p]));
+          incomingItems.forEach((item) => {
+            if (!item || !item.id) return;
+            const base = mergedById.get(item.id) || {};
+            mergedById.set(item.id, {
+              ...base,
+              ...item,
+              stockStatus: item.stockStatus || base.stockStatus || "in_stock",
+            });
+          });
+          return Array.from(mergedById.values());
+        };
+
         try {
           const apiResponse = await fetch(`${API_BASE_URL}/api/products`, {
             headers: { Accept: "application/json" },
@@ -912,8 +926,9 @@ export default function App() {
               tags: Array.isArray(p.tags) ? p.tags : [],
               stockStatus: p.stockStatus || "in_stock",
             }));
-            setCatalog(normalized);
-            await saveCatalog(normalized);
+            const merged = mergeWithFallback(normalized);
+            setCatalog(merged);
+            await saveCatalog(merged);
             return;
           }
 
@@ -921,7 +936,8 @@ export default function App() {
           if (res?.value) {
             const parsed = JSON.parse(res.value);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setCatalog(parsed.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" })));
+              const normalizedParsed = parsed.map((p) => ({ ...p, stockStatus: p.stockStatus || "in_stock" }));
+              setCatalog(mergeWithFallback(normalizedParsed));
               return;
             }
           }
