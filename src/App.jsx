@@ -35,6 +35,7 @@ const CATEGORIES = [
   { key: "audio", label: "Audio" },
   { key: "accessory", label: "Accessories" },
   { key: "electronics", label: "Electronics" },
+  { key: "sparepart", label: "Spare Parts" },
 ];
 
 const CATEGORY_MENU = [
@@ -78,6 +79,14 @@ const CATEGORY_MENU = [
     color: "#f5f3ff",
     count: () => PRODUCTS.filter(p => p.category === "electronics").length
   },
+  {
+    key: "sparepart",
+    label: "Spare Parts",
+    desc: "New & Ex Japan · Toyota, Nissan, Honda & more",
+    image: "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=900&h=620&fit=crop",
+    color: "#fefce8",
+    count: () => PRODUCTS.filter(p => p.category === "sparepart").length
+  },
 ];
 
 const TESTIMONIALS = [
@@ -104,6 +113,7 @@ const GRADE_INFO = {
   New: { label: "Brand New", desc: "Sealed box, never used, full warranty", color: "#2563eb" },
   A: { label: "Grade A", desc: "Looks brand new, zero visible scratches", color: "#22c55e" },
   B: { label: "Grade B", desc: "Minor cosmetic marks, fully functional", color: "#f59e0b" },
+  "Ex Japan": { label: "Ex Japan", desc: "Sourced from Japan, good used condition, low mileage", color: "#b45309" },
 };
 
 const fmt = (n) => `KSH ${Number(n).toLocaleString()}`;
@@ -1328,6 +1338,37 @@ export default function App() {
       if (/redmi/i.test(name)) return "Redmi";
       if (/\bpoco\b/i.test(name)) return "POCO";
       if (/\bmi\b/i.test(name)) return "Mi Series";
+    }
+
+    // Vehicle spare parts — group by part type (partspoa categories)
+    if (["toyota", "nissan", "honda", "mitsubishi", "subaru", "isuzu", "mazda", "lexus", "hino", "suzuki", "volkswagen", "vw", "bmw", "mercedes"].includes(brand)) {
+      // Engine & Components
+      if (/engine|alternator|starter|timing chain|turbo|injector|spark plug|distributor|cam shaft|crank shaft|valve|cylinder head|block/i.test(name)) return "Engine & Components";
+      // Drivetrain
+      if (/gearbox|transmission|cv joint|clutch|propeller|diff|differential|axle|bearing|u-joint|drive shaft/i.test(name)) return "Drivetrain";
+      // Suspension & Performance
+      if (/shock absorber|suspension|ball joint|stabilizer|leaf spring|coil spring|strut|damper|control arm|sway bar/i.test(name)) return "Suspension & Performance";
+      // Steering
+      if (/tie rod|rack.*pinion|power steering|steering|column|worm|gear|seal/i.test(name)) return "Steering";
+      // Brakes
+      if (/brake|caliper|rotor|disc|drum|pad|hose|master cylinder|wheel cylinder/i.test(name)) return "Brakes";
+      // Cooling System
+      if (/radiator|thermostat|water pump|cooling|fan|heater|hose|expansion tank|cap/i.test(name)) return "Cooling";
+      // Fuel System
+      if (/fuel pump|fuel filter|fuel injector|carburet|fuel line|regulator|tank|strainer/i.test(name)) return "Fuel System";
+      // Air Conditioning
+      if (/\bac\b|air condition|compressor|condenser|evaporator|blower|refrigerant|dryer|expansion valve/i.test(name)) return "Air Conditioning";
+      // Tire and Wheels
+      if (/tire|wheel|rim|hub|bearing|stud|lug nut|cap|center/i.test(name)) return "Tire and Wheels";
+      // Replacement parts (filters, belts, hoses)
+      if (/air filter|oil filter|filter|cabin filter|belt|serpentine|timing|hose|clamp/i.test(name)) return "Replacement parts";
+      // Interior Accessories
+      if (/seat|carpet|mat|dashboard|steering wheel|interior panel|door card|headliner|sun shade|visor/i.test(name)) return "Interior Accessories";
+      // Exterior Accessories & Body Parts
+      if (/bumper|bonnet|hood|door|fender|panel|mirror|trunk|boot|molding|trim|side step|grille|grill/i.test(name)) return "Exterior Accessories";
+      // Lighting
+      if (/headlight|tail light|lamp|bulb|led light|fog light|brake light|marker light|indicator/i.test(name)) return "Lighting";
+      return "Replacement parts";
     }
 
     if (/^x\d+/i.test(first)) return first.toUpperCase();
